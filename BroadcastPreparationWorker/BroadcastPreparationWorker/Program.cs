@@ -4,7 +4,7 @@ Console.WriteLine("###############################################");
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddDbInjection(builder.Configuration)
     .AddInfraRepoDep()
-    .AddMassRabbitMqDep();
+    .AddMassRabbitMqDep(builder.Configuration);
 
 var host = builder.Build();
 host.Run();

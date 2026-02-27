@@ -117,10 +117,9 @@ namespace Infrastructure
             services.AddScoped<IChatQueriesRepository, ChatQueriesRepository>();
             services.AddScoped<IChatCommandRepository, ChatCommandRepository>();
             services.AddScoped<IAuthenticationServices, AuthenticationServices>();
-            services.AddScoped<IAuthenticationServices, AuthenticationServices>();
             services.AddScoped<ISecurityServices, SecurityServices>();
-            services.AddSingleton(typeof(IBackgroundQueue<>),typeof(BackgroundQueueService<>));
-         
+            services.AddSingleton(typeof(IBackgroundQueue<>), typeof(BackgroundQueueService<>));
+
 
             return services;
         }

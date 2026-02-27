@@ -25,7 +25,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddDbInjection(builder.Configuration)
     .AddAuthentcationDep(builder.Configuration)
        .AddInfraDep().AddInfraRepoDep()
-            .AddApplicationDep();
+            .AddApplicationDep(builder.Configuration);
 
 builder.Services.AddSignalR();
 

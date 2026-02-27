@@ -31,7 +31,7 @@ builder.Services.AddSingleton<IChatMemberCache, MemoryMemberCache>(); // ✅ Mem
 builder.Services
     .AddDbInjection(builder.Configuration)
     .AddInfraRepoDep()
-    .AddMassRabbitMqDep();
+    .AddMassRabbitMqDep(builder.Configuration);
 
 var host = builder.Build();
 host.Run();
