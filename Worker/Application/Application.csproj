@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>False</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Abstractions\Repositories\Chat\" />
+  </ItemGroup>
+	<ItemGroup>
+		<Reference Include="Contracts">
+			<HintPath>..\..\Shared\Contracts\bin\Debug\net9.0\Contracts.dll</HintPath>
+		</Reference>
+	</ItemGroup>
+
+</Project>

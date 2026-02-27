@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Application/Application.csproj" Id="6bdfeb18-994f-458f-a1d2-6c776bc2b8aa" />
+  <Project Path="Domain/Domain.csproj" Id="6c6e4590-b868-4ee7-9c6d-9a6f446bf7f9" />
+  <Project Path="Gateway/AppGateway.csproj" />
+  <Project Path="Infrastructure/Infrastructure.csproj" Id="838e5580-df28-4e7b-bcfc-ff8feeb3f0c0" />
+</Solution>

@@ -1,0 +1,147 @@
+﻿using Application.Abstractions.Repositories.Messages;
+using Application.Dtos.Basic;
+using Application.Dtos.Message;
+using Application.Future.Messages.Querey.Response;
+using Contracts.Enums;
+using Contracts.Message.Dtos;
+using Domain.Models;
+using Infrastructure.Repositories.GenaricRepo;
+using Microsoft.VisualBasic;
+using MongoDB.Bson;
+using MongoDB.Driver;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace Infrastructure.Repositories.Implementation.Messages
+{
+    public class MessagesQueriesRepository : IMessagesQueriesRepository
+    {
+        private readonly IGenaricRepository<Message> _repo;
+        private readonly IGenaricRepository<AppUser> _Userrepo;
+        private readonly IGenaricRepository<MessageReceipts> _repoStutesDelivered;
+     
+
+        public MessagesQueriesRepository(IGenaricRepository<AppUser> Userrepo,IGenaricRepository<Message> repo,
+            IGenaricRepository<MessageReceipts> repoStutesDelivered)
+        {
+            _Userrepo = Userrepo;
+            _repo = repo;
+            _repoStutesDelivered = repoStutesDelivered;
+        }
+
+
+        public async Task<PaginationResult<GetMessagesChatResponse>> GetMessagesChatPaginationAsync(
+          string chatId,
+          string currentUserId,
+          int pageSize,
+          DateTime? lastSeenTime = null
+          )
+        {
+            pageSize = pageSize <= 0 ? 10 : pageSize;
+            var cursorTime = lastSeenTime ?? DateTime.MaxValue;
+            var currentUserObjId = ObjectId.Parse(currentUserId);
+
+            var Pipline = new List<BsonDocument> {
+                // Match stage to filter messages by chatId and SentAt less than cursorTime
+                new BsonDocument("$match",new BsonDocument
+                {
+                    {  "ChatId", chatId  },
+                    { "SentAt", new BsonDocument("$lt", cursorTime)
+                }}),
+                  // Sort
+                  new BsonDocument("$sort", new BsonDocument("SentAt", -1)),
+
+
+                  // Project
+                  new BsonDocument("$project",new BsonDocument
+                  {
+                        { "_id", 0 },
+                        { "MessageId", new BsonDocument("$toString", "$_id") },
+                        { "SenderId", 1 },
+                        { "Content", 1 },
+                        { "aggregate", 1 },
+                        { "SentAt", 1 },
+                        { "EditedAt", 1 },
+                        { "IsPinned", 1 },
+                        { "SenderName", 1 },
+                        { "Attachments", 1 },
+                        { "Reactions", 1 },
+                        { "messageDeliveryStatus", "$MessageDeliveryStatus" }
+                  })
+
+            };
+
+            return await _repo.AggregateWithRangebasedPaginationAsync<GetMessagesChatResponse>(
+                       Pipline,
+                       pageSize,
+                       x => x.SentAt
+                   );
+
+        }
+
+
+
+        public async Task<List<UserMessageReadInfoResponse>> GetMessageStatusInfoAsync(string targetMessageId)
+        {
+            var targetObjectId = new ObjectId(targetMessageId);
+
+            var sender = await _repo.FindOneAsync(x => x.Id == targetObjectId, x => x.SenderId);
+            var senderObjectId = new ObjectId(sender);
+
+            var collection = _repoStutesDelivered.GetMongoCollection();
+
+            var pipeline = new[]
+            {
+        // 1️⃣ فلترة
+        new BsonDocument("$match", new BsonDocument
+        {
+            { "MessageId", new BsonDocument("$gte", targetObjectId) },
+            { "UserId",    new BsonDocument("$ne",  senderObjectId) }
+        }),
+
+        // 2️⃣ ترتيب
+        new BsonDocument("$sort", new BsonDocument("MessageId", 1)),
+
+        // 3️⃣ Join مع users collection
+        new BsonDocument("$lookup", new BsonDocument
+        {
+            { "from", "AppUser" }, // اسم collection الفعلي في Mongo
+            { "localField", "UserId" },
+            { "foreignField", "_id" },
+            { "as", "UserInfo" }
+        }),
+
+        new BsonDocument("$unwind", "$UserInfo"),
+
+        // 4️⃣ Group
+        new BsonDocument("$group", new BsonDocument
+        {
+            { "_id", "$UserId" },
+            { "UserName", new BsonDocument("$first", "$UserInfo.UserName") },
+            { "ReadAt", new BsonDocument("$first", "$ReadAt") },
+            { "DeliveredAt", new BsonDocument("$first", "$DeliveredAt") }
+        })
+    };
+
+            var results = await collection
+                .Aggregate<BsonDocument>(pipeline)
+                .ToListAsync();
+
+            return results.Select(r => new UserMessageReadInfoResponse
+            {
+                UserId = r["_id"].AsObjectId.ToString(),
+                UserName = r["UserName"].AsString,
+                LastReadAt = r["ReadAt"] != BsonNull.Value
+                                ? r["ReadAt"].ToUniversalTime()
+                                : null,
+                LastDeliveredAt = r["DeliveredAt"] != BsonNull.Value
+                                ? r["DeliveredAt"].ToUniversalTime()
+                                : DateTime.MinValue
+            }).ToList();
+        }
+
+    }
+}

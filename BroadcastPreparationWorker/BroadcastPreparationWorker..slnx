@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Application/Application.csproj" />
+  <Project Path="BroadcastPreparationWorker/BroadcastPreparationWorker..csproj" />
+  <Project Path="Domain/Domain.csproj" />
+  <Project Path="Infrastructure/Infrastructure.csproj" />
+</Solution>

@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MassTransit" Version="9.0.0-develop.33" />
+    <PackageReference Include="MassTransit.RabbitMQ" Version="9.0.0-develop.33" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Application\Application.csproj" />
+    <ProjectReference Include="..\Domain\Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Contracts">
+      <HintPath>..\..\Shared\Contracts\bin\Debug\net9.0\Contracts.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
