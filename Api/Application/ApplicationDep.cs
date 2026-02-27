@@ -1,4 +1,5 @@
 ﻿using MassTransit;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
 
@@ -7,7 +8,7 @@ namespace Application
 {
     public static class ApplicationDep
     {
-        public static IServiceCollection AddApplicationDep(this IServiceCollection services)
+        public static IServiceCollection AddApplicationDep(this IServiceCollection services, IConfiguration configuration)
         {
 
             services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblies(Assembly.GetExecutingAssembly()));
@@ -15,10 +16,10 @@ namespace Application
             {
                 cfg.UsingRabbitMq((context, bus) =>
                 {
-                    bus.Host("localhost", "/", h =>
+                    bus.Host(configuration["RabbitMqSettings:Host"] ?? "localhost", "/", h =>
                     {
-                        h.Username("guest");
-                        h.Password("guest");
+                        h.Username(configuration["RabbitMqSettings:Username"] ?? "guest");
+                        h.Password(configuration["RabbitMqSettings:Password"] ?? "guest");
                     });
                 });
             });

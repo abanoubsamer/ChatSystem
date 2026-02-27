@@ -8,7 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.
     AddDbInjection(builder.Configuration)
     .AddAuthentcationDep(builder.Configuration)
-    .AddMassRabbitMqDep()
+    .AddMassRabbitMqDep(builder.Configuration)
     .AddInfraDep();
 
 var app = builder.Build();

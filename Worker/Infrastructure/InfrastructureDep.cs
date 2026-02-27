@@ -69,7 +69,7 @@ namespace Infrastructure
 
         }
 
-        public static IServiceCollection AddMassRabbitMqDep(this IServiceCollection services)
+        public static IServiceCollection AddMassRabbitMqDep(this IServiceCollection services, IConfiguration configuration)
         {
 
             services.AddMassTransit(cfg =>
@@ -87,10 +87,10 @@ namespace Infrastructure
                 // 2. Configure RabbitMQ
                 cfg.UsingRabbitMq((context, bus) =>
                 {
-                    bus.Host("localhost", "/", h =>
+                    bus.Host(configuration["RabbitMqSettings:Host"] ?? "localhost", "/", h =>
                     {
-                        h.Username("guest");
-                        h.Password("guest");
+                        h.Username(configuration["RabbitMqSettings:Username"] ?? "guest");
+                        h.Password(configuration["RabbitMqSettings:Password"] ?? "guest");
                     });
 
                     // Queue binding

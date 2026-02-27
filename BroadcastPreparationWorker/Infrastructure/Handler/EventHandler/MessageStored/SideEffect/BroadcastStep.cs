@@ -5,6 +5,7 @@ using Contracts.Message.Commend;
 using Contracts.Message.Events;
 using Contracts.Snapshot.Chat.Command;
 using MassTransit;
+using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System;
 using System.Collections.Generic;
@@ -18,11 +19,13 @@ namespace Infrastructure.Handler.EventHandler.MessageStored.SideEffect
     {
         private readonly IMessagePublisher _publish;
         private readonly IUserRepositoryQuerey _userRepository;
+        private readonly ILogger<BroadcastStep> _logger;
 
-        public BroadcastStep(IMessagePublisher publish, IUserRepositoryQuerey userRepository)
+        public BroadcastStep(IMessagePublisher publish, IUserRepositoryQuerey userRepository, ILogger<BroadcastStep> logger)
         {
             _userRepository = userRepository;
             _publish = publish;
+            _logger = logger;
         }
 
         public async Task HandleAsync(MessageCreatedEvent evt, Func<Task> next)
@@ -50,12 +53,9 @@ namespace Infrastructure.Handler.EventHandler.MessageStored.SideEffect
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"SnapshotUpdateStep failed: {ex.Message}");
+                    _logger.LogError(ex, "BroadcastStep failed for MessageId: {MessageId}", evt.MessageId);
                 }
             });
-           
-
-           
         }
     }
 }

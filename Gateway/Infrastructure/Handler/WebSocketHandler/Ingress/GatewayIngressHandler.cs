@@ -4,6 +4,7 @@ using Application.Abstractions.Handler.GatewayWebSocket.Ingress;
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Session;
 using Application.Dtos.Message.Mehode;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,27 +21,30 @@ namespace Infrastructure.Handler.WebSocketHandler.Ingress
         private readonly IEnumerable<IMethodHandler> _handlers;
         private readonly ISessionServices _sessionServices;
         private readonly IPresenceService _presenceService;
+        private readonly ILogger<GatewayIngressHandler> _logger;
         private readonly Dictionary<string, IMethodHandler> _methodHandlers;
 
         public GatewayIngressHandler(
             ISessionServices sessionServices,
             IPresenceService presenceService,
             IEnumerable<IMethodHandler> handlers,
-            IConnectionServices connectionsStore)
+            IConnectionServices connectionsStore,
+            ILogger<GatewayIngressHandler> logger)
         {
             _presenceService = presenceService;
             _sessionServices = sessionServices;
             _connectionsStore = connectionsStore;
             _handlers = handlers;
+            _logger = logger;
             _methodHandlers = _handlers.ToDictionary(h => h.MethodName);
         }
 
 
         public async Task HandleAsync(string userId, WebSocket socket, CancellationToken ct)
         {
-            await _sessionServices.OnUserConnectedAsync(userId,socket);
+            await _sessionServices.OnUserConnectedAsync(userId, socket);
             await _presenceService.OnConnectedAsync(userId, ct);
-            Console.WriteLine("Connaction With User ID : " + userId);
+            _logger.LogInformation("Connection With User ID : {UserId}", userId);
             var buffer = new byte[4096];
             try
             {
@@ -80,7 +84,7 @@ namespace Infrastructure.Handler.WebSocketHandler.Ingress
                     }
                     catch
                     {
-                        Console.WriteLine("Invalid message format");
+                        _logger.LogWarning("Invalid message format received from User ID : {UserId}", userId);
                         continue;
                     }
 
@@ -92,7 +96,7 @@ namespace Infrastructure.Handler.WebSocketHandler.Ingress
                     }
                     else
                     {
-                        Console.WriteLine($"Unknown method: {msgObj?.Method}");
+                        _logger.LogWarning("Unknown method: {Method} received from User ID : {UserId}", msgObj?.Method, userId);
                     }
                 }
             }
@@ -102,14 +106,14 @@ namespace Infrastructure.Handler.WebSocketHandler.Ingress
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Unexpected WS error: {ex}");
+                _logger.LogError(ex, "Unexpected WS error for User ID : {UserId}", userId);
             }
             finally
             {
                 await _sessionServices.OnUserDisconnectedAsync(userId, socket);
                 await _presenceService.OnDisconnectedAsync(userId, ct);
 
-                Console.WriteLine($"close WS Connction with ID: {userId}");
+                _logger.LogInformation("close WS Connection with ID: {UserId}", userId);
                 try
                 {
                     if (socket.State == WebSocketState.Open ||
