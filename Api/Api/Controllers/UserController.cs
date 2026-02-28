@@ -21,5 +21,11 @@ namespace Api.Controllers
         {
             return Ok(await _Mediator.Send(new GetUserInfoModel(GetToken().UserId)));
         }
+
+        [HttpGet(Routing.User.SearchToUser)]
+        public async Task<IActionResult> SearchToUser(string Email)
+        {
+            return Ok(await _Mediator.Send(new SearchToUserModel(Email, GetToken().UserId)));
+        }
     }
 }

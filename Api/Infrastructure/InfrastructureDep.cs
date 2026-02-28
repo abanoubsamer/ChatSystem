@@ -2,6 +2,7 @@
 using Application.Abstractions.Repositories.ChatSnapshot;
 using Application.Abstractions.Repositories.Messages;
 using Application.Abstractions.Repositories.User;
+using Application.Abstractions.Repositories.Contact;
 using Application.Abstractions.Services.Authentication;
 using Application.Abstractions.Services.Background;
 using Application.Abstractions.Services.Publisher;
@@ -13,6 +14,7 @@ using Infrastructure.Repositories.Implementation.Chats;
 using Infrastructure.Repositories.Implementation.ChatSnapshot;
 using Infrastructure.Repositories.Implementation.Messages;
 using Infrastructure.Repositories.Implementation.User;
+using Infrastructure.Repositories.Implementation.Contact;
 using Infrastructure.Services.Authentication;
 using Infrastructure.Services.Background;
 using Infrastructure.Services.Publisher;
@@ -104,6 +106,8 @@ namespace Infrastructure
             services.AddScoped<IMessagesCommandRepository, MessagesCommandRepository>();
             services.AddScoped<IMessagesQueriesRepository, MessagesQueriesRepository>();
             services.AddScoped<IUserQueriesRepository, UserQueriesRepository>();
+            services.AddScoped<IContactCommandRepository, ContactCommandRepository>();
+            services.AddScoped<IContactQueriesRepository, ContactQueriesRepository>();
             services.AddScoped<IChatSnapshotQuerieRepository, ChatSnapshotQuerieRepository>();
             services.AddScoped<IChatSnapshotCommandRepository, ChatSnapshotCommandRepository>();
             services.AddScoped(typeof(IGenaricRepository<>), typeof(GenaricRepository<>));

@@ -28,7 +28,6 @@ namespace Infrastructure.ConsumerHandler.User.Query
         {
             _logger.LogInformation("Getting groups for user {UserId}", context.Message.UserId);
 
-            // جيب الـ groups من الـ DB
             var groups = await _ChatMemberRepo.GetUserChatsIdsWithUser(context.Message.UserId);
           
             await context.RespondAsync(new UserGroupsResponse

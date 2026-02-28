@@ -2,6 +2,7 @@
 using Application.Abstractions.Repositories.ChatSnapshot;
 using Application.Abstractions.Services.Publisher;
 using Application.Future.Chat.Commend.Models;
+using Contracts.Chat.Command;
 using Contracts.Snapshot.Chat.Command;
 using Core.Basic;
 using MediatR;
@@ -24,12 +25,18 @@ namespace Application.Future.Chat.Commend.Handler
         }
         public async Task<Response<string>> Handle(AddNewChatModel request, CancellationToken cancellationToken)
         {
-            var result = await chatServices.AddNewChatAsync(request.creatorId,
+            var result = await chatServices.CreateChatAsync(request.creatorId,
                 request.memberIds,
                 request.type,
                 request.title,
                 request.description,
                 request.photoUrl);
+           
+            if(!result.Succeeded && result.Message.StartsWith("already exists"))
+            {
+                var chatId = result.Message.Split("_id:").Last();
+                return Success(chatId);
+            }
 
             if (!result.Succeeded) return BadRequest<string>(result.Message);
 
@@ -41,9 +48,20 @@ namespace Application.Future.Chat.Commend.Handler
                 DisplayName = request.title,
                 ProfileImage = request.photoUrl,
             };
+            var connctionevent = new NewChatCommand
+            {
+                MemebersIds = result.Data.Item2.Select(x => x.UserId.ToString()).ToList(),
+                ChatId = result.Data.Item1.Id.ToString(),
+                ChatName = request.title,
+                AvatarUrl = request.photoUrl,
+                ChatType = result.Data.Item1.Type,
+                CreatorId = request.creatorId
+            };
             _ = _publisher.PublishAsync(mapping);
 
-            return Success(result.Message);
+            _ = _publisher.PublishAsync(connctionevent);
+
+            return Success(result.Data.Item1.Id.ToString());
         }
     }
 }

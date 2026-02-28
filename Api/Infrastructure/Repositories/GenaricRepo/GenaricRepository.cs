@@ -86,6 +86,95 @@ namespace Infrastructure.Repositories.GenaricRepo
 
 
 
+        public virtual async Task InsertAsync(T entity, IClientSessionHandle? session = null)
+        {
+            if (session != null)
+            {
+                await _collection.InsertOneAsync(session, entity);
+            }
+            else
+            {
+                await _collection.InsertOneAsync(entity);
+            }
+        }
+
+        public virtual async Task InsertManyAsync(IEnumerable<T> entities, IClientSessionHandle? session = null)
+        {
+            if (session != null)
+            {
+                await _collection.InsertManyAsync(session, entities);
+            }
+            else
+            {
+                await _collection.InsertManyAsync(entities);
+            }
+        }
+
+        public virtual async Task UpdateAsync(T entity, IClientSessionHandle? session = null)
+        {
+            var id = entity.GetType().GetProperty("Id")?.GetValue(entity);
+            var filter = Builders<T>.Filter.Eq("_id", id);
+
+            if (session != null)
+            {
+                await _collection.ReplaceOneAsync(session, filter, entity);
+            }
+            else
+            {
+                await _collection.ReplaceOneAsync(filter, entity);
+            }
+        }
+
+        public virtual async Task UpdateManyAsync(
+            FilterDefinition<T> filter,
+            UpdateDefinition<T> update,
+            IClientSessionHandle? session = null)
+        {
+            if (session != null)
+            {
+                await _collection.UpdateManyAsync(session, filter, update);
+            }
+            else
+            {
+                await _collection.UpdateManyAsync(filter, update);
+            }
+        }
+
+        public virtual async Task DeleteAsync(object id, IClientSessionHandle? session = null)
+        {
+            var filter = Builders<T>.Filter.Eq("_id", id);
+
+            if (session != null)
+            {
+                await _collection.DeleteOneAsync(session, filter);
+            }
+            else
+            {
+                await _collection.DeleteOneAsync(filter);
+            }
+        }
+
+        public virtual async Task DeleteManyAsync(
+            Expression<Func<T, bool>> predicate,
+            IClientSessionHandle? session = null)
+        {
+            if (session != null)
+            {
+                await _collection.DeleteManyAsync(session, predicate);
+            }
+            else
+            {
+                await _collection.DeleteManyAsync(predicate);
+            }
+        }
+
+        public virtual async Task<IEnumerable<TProject>> AggregateAsync<TProject>(
+            PipelineDefinition<T, TProject> pipeline)
+        {
+            return await _collection.Aggregate(pipeline).ToListAsync();
+        }
+
+
 
         #region Find / Query
 

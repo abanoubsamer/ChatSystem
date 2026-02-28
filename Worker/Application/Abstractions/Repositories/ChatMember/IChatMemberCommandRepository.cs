@@ -12,6 +12,7 @@ namespace Application.Abstractions.Repositories.ChatMember
 {
     public interface IChatMemberCommandRepository
     {
+        public  Task AddChatToUser(string userId, string chatId, TimeSpan? expiry = null);
         public  Task<List<Domain.Models.ChatMember>> GetActiveMembersAsync(
             DateTime fromDate,
             CancellationToken ct = default);

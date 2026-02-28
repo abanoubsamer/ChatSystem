@@ -32,7 +32,6 @@ namespace Application.Future.Snapshot.Queries.Handler
             
             var chats = await _chatSnapshot.GetUserChatSnapshots(request.UserId, request.lastMessageTime, request.PageSize);
 
-            //fire event to update delevry message stutes 
 
 
             return PaginationResult<GetChatsSnapshotResponse>.Success(chats.Data, chats.TotalCount, 0, request.PageSize);

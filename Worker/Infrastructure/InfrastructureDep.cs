@@ -18,6 +18,7 @@ using Application.Abstractions.Services.Watermark;
 using Application.Dtos.Ack;
 using Contracts.User.Query.Groups;
 using Infrastructure.Cache;
+using Infrastructure.ConsumerHandler.Chat;
 using Infrastructure.ConsumerHandler.Message.Commend;
 using Infrastructure.ConsumerHandler.Snapshot.Chat.Commend;
 using Infrastructure.ConsumerHandler.User.Command;
@@ -83,7 +84,7 @@ namespace Infrastructure
                 cfg.AddConsumer<AddSnapshotUserConsumer>();
                 cfg.AddConsumer<UpdateSnapDeliveryStatusConsumer>();
                 cfg.AddConsumer<UpdateSeenStatusConsumer>();
-
+                cfg.AddConsumer<NewChatConsumer>();
                 // 2. Configure RabbitMQ
                 cfg.UsingRabbitMq((context, bus) =>
                 {
@@ -133,7 +134,10 @@ namespace Infrastructure
                     {
                         e.ConfigureConsumer<UpdateSeenStatusConsumer>(context);
                     });
-
+                    bus.ReceiveEndpoint("WebSocket-New-Chat-queue", e =>
+                    {
+                        e.ConfigureConsumer<NewChatConsumer>(context);
+                    });
                 });
 
             });

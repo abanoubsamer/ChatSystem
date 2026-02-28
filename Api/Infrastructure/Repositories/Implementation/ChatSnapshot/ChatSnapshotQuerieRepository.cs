@@ -28,57 +28,130 @@ namespace Infrastructure.Repositories.Implementation.ChatSnapshot
         {
             pageSize = pageSize <= 0 ? 10 : pageSize;
             var cursorTime = lastSeenTime ?? DateTime.MaxValue;
+            var isFirstSnapshot = lastSeenTime == null;
 
             try
             {
-                var pipeline = new List<BsonDocument>
+                // 🔥 بناء شرط الـ $match ديناميكياً
+                var matchConditions = new BsonDocument
                 {
-                    new BsonDocument("$match", new BsonDocument
-                    {
-                        { "UserId", ObjectId.Parse(UserId) },
-                        { "LastMessageTime", new BsonDocument("$lt", cursorTime) }
-                    }),
-                    new BsonDocument("$sort", new BsonDocument("LastMessageTime", -1)),
-                    new BsonDocument("$project", new BsonDocument
-                    {
+                    { "UserId", ObjectId.Parse(UserId) }
+                };
 
-                        { "name", "$DisplayName" },
-                        {"_id",0 },
-                        { "ChatId", new BsonDocument("$toString", "$ChatId") }, // هنا بنجيب بس ChatId كـ string
-                        { "lastMessage", new BsonDocument
+                        if (isFirstSnapshot)
+                        {
+                            // ✅ أول snapshot: نظهر كل الـ groups حتى لو فاضية
+                            matchConditions.Add("$or", new BsonArray
+                    {
+                        new BsonDocument("LastMessageTime", new BsonDocument("$exists", false)),
+                        new BsonDocument("LastMessageTime", BsonNull.Value),
+                        new BsonDocument("LastMessageTime", new BsonDocument("$ne", BsonNull.Value))
+                    });
+                        }
+                        else
+                        {
+                            // ✅ Pagination عادي: نجيب اللي أقدم من الـ cursor بس
+                            matchConditions.Add("LastMessageTime", new BsonDocument("$lt", cursorTime));
+                        }
+
+                        var pipeline = new List<BsonDocument>
+                {
+                    new BsonDocument("$match", matchConditions),
+
+                    // 🔥 نعمل lookup على Users
+                    new BsonDocument("$lookup", new BsonDocument
+                    {
+                        { "from", "AppUser" },
+                        { "let", new BsonDocument("otherUserId", new BsonDocument("$toObjectId", "$OtherUser")) },
+                        { "pipeline", new BsonArray
                             {
-                                {  "MessageId", "$LastMessageId"  },
-                                { "Text", "$LastMessageText" },
-                                { "SentAt", "$LastMessageTime" },
-                                { "isRead", new BsonDocument("$cond", new BsonArray
-                                    {
-                                        new BsonDocument("$eq", new BsonArray { "$LastReadMessageId", "$LastMessageId" }),
-                                        true,
-                                        false
-                                    })
-                                },
-                                { "Sender", new BsonDocument
-                                    {
-                                        { "UserId", "$LastMessageSenderId" },
-                                        { "UserName", "$LastMessageSenderName" }
-                                    }
-                                }
+                                new BsonDocument("$match", new BsonDocument
+                                {
+                                    { "$expr", new BsonDocument("$eq", new BsonArray { "$_id", "$$otherUserId" }) }
+                                }),
+                                new BsonDocument("$project", new BsonDocument
+                                {
+                                    { "_id", 1 },
+                                    { "UserName", 1 },
+                                    { "AvatarUrl", 1 }
+                                })
                             }
                         },
+                        { "as", "OtherUserData" }
+                    }),
+
+                    new BsonDocument("$unwind", new BsonDocument
+                    {
+                        { "path", "$OtherUserData" },
+                        { "preserveNullAndEmptyArrays", true }
+                    }),
+
+                    // 🔥 نعدل الاسم والصورة لو Private
+                    new BsonDocument("$addFields", new BsonDocument
+                    {
+                        { "FinalName", new BsonDocument("$cond", new BsonArray
+                            {
+                                new BsonDocument("$eq", new BsonArray { "$ChatType", 0 }),
+                                "$OtherUserData.UserName",
+                                "$DisplayName"
+                            })
+                        },
+                        { "FinalProfileImage", new BsonDocument("$cond", new BsonArray
+                            {
+                                new BsonDocument("$eq", new BsonArray { "$ChatType", 0 }),
+                                "$OtherUserData.AvatarUrl",
+                                "$ProfileImage"
+                            })
+                        }
+                    }),
+
+                    // 🔥 ترتيب ذكي: الـ groups الفاضية تكون في الآخر
+                    new BsonDocument("$sort", new BsonDocument
+                    {
+                        { "LastMessageTime", -1 } // الـ null هتروح الآخر في الـ descending sort
+                    }),
+
+                    new BsonDocument("$project", new BsonDocument
+                    {
+                        { "_id", 0 },
+                        { "name", "$FinalName" },
+                        { "profileImage", "$FinalProfileImage" },
+                        { "ChatId", new BsonDocument("$toString", "$ChatId") },
+                        { "ChatType", 1 },
+                        { "OtherUser", 1 },
                         { "StoryIsActive", 1 },
-                        {"ChatType",1},
-                        {"OtherUser",1},
                         { "unreadMessagesCount", "$UnreadCount" },
-                        { "profileImage", "$ProfileImage" },
-                        { "UpdatedAt", "$UpdatedAt" },
-                        {  "version", "$Version" }
+                        { "UpdatedAt", 1 },
+                        { "version", "$Version" },
+
+                        { "lastMessage", new BsonDocument("$cond", new BsonArray
+                            {
+                                // لو فيه رسائل نرجع الـ lastMessage، لو لا نرجع null
+                                new BsonDocument("$ne", new BsonArray { "$LastMessageId", BsonNull.Value }),
+                                new BsonDocument
+                                {
+                                    { "MessageId", "$LastMessageId" },
+                                    { "Text", "$LastMessageText" },
+                                    { "SentAt", "$LastMessageTime" },
+                                    { "isRead", new BsonDocument("$eq", new BsonArray { "$LastReadMessageId", "$LastMessageId" }) },
+                                    { "Sender", new BsonDocument
+                                        {
+                                            { "UserId", "$LastMessageSenderId" },
+                                            { "UserName", "$LastMessageSenderName" }
+                                        }
+                                    }
+                                },
+                                BsonNull.Value
+                            })
+                        }
                     })
                 };
-                var Chats = await _repo
-                       .AggregateWithRangebasedPaginationAsync<GetChatsSnapshotResponse>(pipeline, 
-                        pageSize,C => C.lastMessage.SentAt);
-                return Chats;
 
+                var Chats = await _repo
+                       .AggregateWithRangebasedPaginationAsync<GetChatsSnapshotResponse>(pipeline,
+                        pageSize, C => C.lastMessage.SentAt);
+
+                return Chats;
             }
             catch (Exception ex)
             {
@@ -88,7 +161,7 @@ namespace Infrastructure.Repositories.Implementation.ChatSnapshot
             }
         }
 
-       
+
 
         public async Task<List<GetChatsSnapshotResponse>> SyncUserChatSnapshots(string UserId, DateTime LastSeenVersion)
         {

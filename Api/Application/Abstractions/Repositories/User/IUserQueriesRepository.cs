@@ -1,10 +1,5 @@
 ﻿using Application.Future.User.Query.Response;
 using MongoDB.Bson;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Application.Abstractions.Repositories.User
 {
@@ -12,5 +7,6 @@ namespace Application.Abstractions.Repositories.User
     {
 
         Task<GetUserInfoResponse> GetUserInfoAsync(ObjectId userId);
+        Task<SearchUserResponse?> SearchUserOptimizedAsync(string email, string userId);
     }
 }

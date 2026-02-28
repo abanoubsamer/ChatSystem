@@ -80,6 +80,42 @@ namespace Infrastructure.Repositories.Implementation.ChatSnapshot
              string? displayName = null,
              string? photo = null)
         {
+
+            var result = new List<UserChatSnapshot>();
+            if (chatType == ChatType.Private)
+            {
+                if (membersId == null || membersId.Count != 2)
+                    throw new ArgumentException("Private chat must have exactly 2 members");
+                result.Add(new UserChatSnapshot {
+
+                    ChatId = ObjectId.Parse(chatId),
+                    UserId = ObjectId.Parse(membersId[0]),
+                    LastMessageSenderId= null,
+                    LastMessageTime= null,
+                    ProfileImage= null,
+                    DisplayName= null,
+                    ChatType= chatType,
+                    UnreadCount=0,
+                    OtherUser = membersId[1],
+                   
+                }
+                );
+                 result.Add(new UserChatSnapshot
+                 {
+                     ChatId = ObjectId.Parse(chatId),
+                     UserId = ObjectId.Parse(membersId[1]),
+                     LastMessageSenderId = null,
+                     LastMessageTime = null,
+                     ProfileImage = null,
+                     DisplayName = null,
+                     ChatType = chatType,
+                     UnreadCount = 0,
+                     OtherUser = membersId[0],
+
+                 });
+                 return result;
+            }
+
             return membersId.Select(Userid => new UserChatSnapshot
             {
                 ChatId = ObjectId.Parse(chatId),

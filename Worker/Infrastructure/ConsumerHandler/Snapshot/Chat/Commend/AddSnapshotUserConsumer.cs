@@ -1,4 +1,5 @@
 ﻿using Application.Abstractions.Repositories.ChatSnapshot;
+using Contracts.Enums;
 using Contracts.Snapshot.Chat.Command;
 using MassTransit;
 using System;
@@ -19,6 +20,7 @@ namespace Infrastructure.ConsumerHandler.Snapshot.Chat.Commend
 
         public Task Consume(ConsumeContext<AddSnapshotUserCommand> context)
         {
+           
 
            var snapshots = _chatSnapshot.BuildSnapshots(
                 context.Message.ChatId,

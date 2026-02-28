@@ -2,42 +2,73 @@
 using Application.Result;
 using Contracts.Enums;
 using Domain.Models;
+using Domain.Models.Snapshot;
 using Infrastructure.Repositories.GenaricRepo;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using static MongoDB.Bson.Serialization.Serializers.SerializerHelper;
+using MongoDB.Driver;
+
 
 namespace Infrastructure.Repositories.Implementation.Chats
 {
     public class ChatCommandRepository : IChatCommandRepository
     {
+        private readonly IGenaricRepository<Chat> _chatRepo;
+        private readonly IGenaricRepository<ChatMember> _memberRepo;
+        private readonly IGenaricRepository<UserChatSnapshot> _SnapshotRepo;
+        private readonly IMongoClient _mongoClient;
+        private readonly ILogger<ChatCommandRepository> _logger;
 
-        private readonly IGenaricRepository<Chat> _Chatrepo;
-        private readonly IGenaricRepository<ChatMember> _MemberRepo;
-      
-        public ChatCommandRepository( IGenaricRepository<Chat> repo, IGenaricRepository<ChatMember> MemberRepo)
+        public ChatCommandRepository(IGenaricRepository<Chat> chatRepo,
+            IGenaricRepository<ChatMember> memberRepo,
+            IGenaricRepository<UserChatSnapshot> snapshotRepo,
+            IMongoClient mongoClient,
+            ILogger<ChatCommandRepository> logger)
         {
-            _MemberRepo = MemberRepo;
-            _Chatrepo = repo;
-           
+            _chatRepo = chatRepo;
+            _memberRepo = memberRepo;
+            _SnapshotRepo = snapshotRepo;
+            _mongoClient = mongoClient;
+            _logger = logger;
+
         }
-        public async Task<Result<(Chat,List<ChatMember>)>> AddNewChatAsync(string creatorId, List<string> memberIds, ChatType type, string? title, string? description, string? photoUrl)
+      public async Task<Result<(Chat Chat, List<ChatMember> Members)>> CreateChatAsync(
+            string creatorId,
+            List<string> memberIds,
+            ChatType type,
+            string? title = null,
+            string? description = null,
+            string? photoUrl = null)
         {
 
             if (memberIds == null || memberIds.Count == 0)
                 return Result<(Chat, List<ChatMember>)>.Fail("Members cannot be empty");
 
-            var chatId = ObjectId.GenerateNewId();
             var allMembers = memberIds
-                   .Append(creatorId)
-                   .Select(ObjectId.Parse)
-                   .Distinct()
-                   .ToList();
+                 .Append(creatorId)
+                 .Select(ObjectId.Parse)
+                 .Distinct()
+                 .ToList();
+
+            if(allMembers.Count()<2) 
+                return Result<(Chat, List<ChatMember>)>.Fail("At least two unique members are required to create a chat");
+           
+            if (type == ChatType.Private)
+            {
+                var snapshots = await _SnapshotRepo.FindMoreAsync(x =>
+                                  allMembers.Contains(x.UserId) && x.ChatType == ChatType.Private);
+
+                var grouped = snapshots
+                    .GroupBy(x => x.ChatId)
+                           .FirstOrDefault(g => g.Count() == allMembers.Count);
+
+                if (grouped != null)
+                    return Result<(Chat, List<ChatMember>)>
+                            .Fail($"already exists _id:{grouped.Key}");
+            }
+
+            var chatId = ObjectId.GenerateNewId();
+          
             var chat = new Chat
             {
                 Id = chatId,
@@ -48,7 +79,7 @@ namespace Infrastructure.Repositories.Implementation.Chats
                 PhotoUrl = photoUrl,
             };
 
-            await _Chatrepo.InsertAsync(chat);
+             await _chatRepo.InsertAsync(chat);
             
             var Member = allMembers.Select(m => new ChatMember
             {
@@ -58,15 +89,9 @@ namespace Infrastructure.Repositories.Implementation.Chats
                 Role = m == ObjectId.Parse(creatorId) ? MemberRole.Admin : MemberRole.Member,
             }).ToList();
             
-            await _MemberRepo.InsertMoreAsync(Member);
+            await _memberRepo.InsertMoreAsync(Member);
             
-            return Result<(Chat, List<ChatMember>)>.Success((chat,Member));
+            return Result<(Chat, List<ChatMember>)>.Success((chat,Member), chatId.ToString());
         }
     }
 }
-//Members = allMembers.Select(id => new ChatMember
-//{
-//    UserId = ObjectId.Parse(id),
-//    JoinedAt = DateTime.UtcNow,
-//    Role = id == creatorId ? MemberRole.Admin : MemberRole.Member,
-//}).ToList()

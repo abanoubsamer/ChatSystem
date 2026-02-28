@@ -9,15 +9,16 @@ using Application.Abstractions.Publisher;
 using Application.Abstractions.Queue;
 using Application.Abstractions.Repositories.Chat;
 using Application.Abstractions.Session;
-using Contracts.Message.Commend;
-using Contracts.Message.Events;
-using Infrastructure.Extension;
 using Application.Handlers.Heartbeat;
 using Application.Handlers.Message;
 using Application.Handlers.Snapshots;
-using Application.Handlers.Sync;
 using Application.Handlers.State;
+using Application.Handlers.Sync;
+using Contracts.Message.Commend;
+using Contracts.Message.Events;
+using Infrastructure.Extension;
 using Infrastructure.Handler.WebSocketHandler.Engress;
+using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Chat;
 using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Message;
 using Infrastructure.Handler.WebSocketHandler.Ingress;
 using Infrastructure.Repositories.GenaricRepo;
@@ -117,6 +118,7 @@ namespace Infrastructure
                 cfg.AddConsumer<BroadcastMessageConsumer>();
 
                 cfg.AddConsumer<AckStoreConsumer>();
+                cfg.AddConsumer<NewChatConsumer>();
 
                 cfg.AddConsumer<AckDeliveredConsumer>();
                 cfg.AddConsumer<SeenAckMessageConsumer>();
@@ -145,6 +147,10 @@ namespace Infrastructure
                     bus.ReceiveEndpoint("WebSocket-Ack-Delivered-queue", e =>
                     {
                         e.ConfigureConsumer<AckDeliveredConsumer>(context);
+                    });
+                    bus.ReceiveEndpoint("WebSocket-New-Chat-queue", e =>
+                    {
+                        e.ConfigureConsumer<NewChatConsumer>(context);
                     });
 
                 });

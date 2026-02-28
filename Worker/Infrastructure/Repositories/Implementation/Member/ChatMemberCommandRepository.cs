@@ -179,23 +179,56 @@ namespace Infrastructure.Repositories.Implementation.Member
                     .Include(x => x.LR))
                 .ToListAsync(ct);
         }
+
+
         public async Task<List<string>> GetUserChatsIdsWithUser(string userId)
         {
-            if (_cache.TryGetValue($"chats_{userId}", out List<string> cachedChats))
+            var cacheKey = $"user:{userId}:chats"; // نفس pattern اللي استخدمناه في MemoryMemberCache
+
+            // 🔹 لو موجودة في الcache نرجعها مباشرة
+            if (_cache.TryGetValue(cacheKey, out List<string>? cachedChats) && cachedChats != null)
                 return cachedChats;
 
-            
+            // 🔹 لو مش موجودة نجيبها من repo
             var chatIds = await _repo
-                .FindMoreAsync(x=>x.UserId ==  ObjectId.Parse(userId) , chat => chat.ChatId.ToString());
+                .FindMoreAsync(
+                    x => x.UserId == ObjectId.Parse(userId),
+                    chat => chat.ChatId.ToString()
+                );
 
-            
+            // 🔹 نحطها في الcache لمدة ساعة
             _cache.Set(
-               $"chats_{userId}",
-               chatIds,
-               TimeSpan.FromHours(1)
-           );
+                cacheKey,
+                chatIds,
+                new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1),
+                    Size = 1
+                }
+            );
 
             return chatIds;
+        }
+
+        public void SetUserChats(string userId, List<string> chatIds, TimeSpan? expiry = null)
+        {
+            var cacheKey = $"user:{userId}:chats";
+            var options = expiry.HasValue
+                ? new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = expiry.Value, Size = 1 }
+                : new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1), Size = 1 };
+
+            _cache.Set(cacheKey, chatIds, options);
+        }
+        public async Task AddChatToUser(string userId, string chatId, TimeSpan? expiry = null)
+        {
+            var chats = await GetUserChatsIdsWithUser(userId);
+
+            // نضيف الشات الجديد
+            if (!chats.Contains(chatId))
+                chats.Add(chatId);
+
+            // نعمل set مرة تانية في cache
+            SetUserChats(userId, chats, expiry);
         }
 
         public async Task<List<ChatMemberWatermarkDto>> GetChatMembersWatermarksAsync(ObjectId chatId)

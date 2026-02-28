@@ -96,8 +96,12 @@ namespace Infrastructure.Services.Authentication
 
         public async Task<Result<AppUser>> RegistrationAsync(RegisterModelDto register)
         {
+
+            var NolmalizedEmail = register.Email.Trim().ToLower();
+            var NolmalizedUserName = register.UserName.Trim().ToLower();
+
             var exits = await _repo
-                .AnyAsync(u => u.UserName == register.UserName || u.Email == register.Email);
+                .AnyAsync(u => u.UserName == NolmalizedUserName || u.Email == NolmalizedEmail);
 
             if (exits) return Result<AppUser>.Fail("Username or Email already exists");
 
@@ -109,8 +113,8 @@ namespace Infrastructure.Services.Authentication
             {
                 var user = new AppUser
                 {
-                    UserName = register.UserName,
-                    Email = register.Email,
+                    UserName = NolmalizedUserName,
+                    Email = NolmalizedEmail,
                     AvatarUrl = register.AvatarUrl,
                     Bio = register.Bio,
                     PasswordHash = _security.HashPassword(register.Password),

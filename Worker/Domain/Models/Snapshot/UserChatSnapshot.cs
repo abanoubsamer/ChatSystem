@@ -22,7 +22,6 @@ namespace Domain.Models.Snapshot
             public ObjectId ChatId { get; set; }
             public string? DisplayName { get; set; }
             public string? ProfileImage { get; set; }
-
             public string? LastMessageText { get; set; }
             public DateTime? LastMessageTime { get; set; }
             public string? LastMessageSenderId { get; set; }
@@ -34,8 +33,8 @@ namespace Domain.Models.Snapshot
             public bool IsPinned { get; set; }
             public bool StoryIsActive { get; set; }
             public long Version { get; set; }
-
-        public ChatType ChatType { get; set; }
+            public string? OtherUser { get; set; }
+            public ChatType ChatType { get; set; }
             public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         }
     

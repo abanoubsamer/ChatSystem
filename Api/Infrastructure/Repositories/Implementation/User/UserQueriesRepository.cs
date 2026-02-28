@@ -31,22 +31,62 @@ namespace Infrastructure.Repositories.Implementation.User
                     Avater = u.AvatarUrl
                 })
                 .FirstOrDefaultAsync();
-            if (user == null)
-                return null;
-            var contacts = await contactsCollection
-                .Find(c => c.UserId == userId)
-                .Project(c => new ContactDto
-                {
-                    Id = c.Id.ToString(),
-                    UserId = c.ContactUserId.ToString(),
-                    ContactName = c.ContactName,
-                    ContactAvatar = c.ContactAvater
-                })
-                .ToListAsync();
-
-            user.contacts = contacts;
+           
 
             return user;
+        }
+
+        // في الـ Repository
+        public async Task<SearchUserResponse?> SearchUserOptimizedAsync(string email, string userId)
+        {
+            if (!ObjectId.TryParse(userId, out var currentUserId))
+                 throw new ArgumentException("Invalid user ID");
+
+            var normalizedEmail = email?.Trim().ToLowerInvariant();
+
+            if (string.IsNullOrEmpty(normalizedEmail))
+                return null;
+
+            // Lookup مع Contacts في استعلام واحد
+            var pipeline = new[]
+            {
+                new BsonDocument("$match", new BsonDocument
+                {
+                    { "Email", normalizedEmail }
+                }),
+                new BsonDocument("$lookup", new BsonDocument
+                {
+                    { "from", "UserContact" },
+                    { "let", new BsonDocument("targetId", "$_id") },
+                    { "pipeline", new BsonArray
+                    {
+                        new BsonDocument("$match", new BsonDocument
+                        {
+                            { "UserId", currentUserId },
+                            { "$expr", new BsonDocument("$eq", new BsonArray { "$ContactUserId", "$$targetId" }) }
+                        }),
+                        new BsonDocument("$limit", 1)
+                    }},
+                    { "as", "contactCheck" }
+                }),
+                new BsonDocument("$project", new BsonDocument
+
+                {
+                    { "_id", 0 },
+                    { "UserId",new BsonDocument("$toString", "$_id")},
+                    { "Email", 1 },
+                    { "UserName", 1 },
+                    { "ProfileImage", "$AvatarUrl" },
+                    { "IsAlreadyContact", new BsonDocument("$gt", new BsonArray
+                    {
+                        new BsonDocument("$size", "$contactCheck"),
+                        0
+                    })}
+                })
+            };
+
+            var result = await _repo.GetMongoCollection().AggregateAsync<SearchUserResponse>(pipeline);
+            return result.FirstOrDefault();
         }
     }
 }

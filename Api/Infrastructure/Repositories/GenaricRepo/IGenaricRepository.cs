@@ -12,6 +12,18 @@ namespace Infrastructure.Repositories.GenaricRepo
         Task<T> GetByIdAsync(string id);
         string GetNameCollection() ;
         Task<List<T>> GetAllAsync(Expression<Func<T, bool>> predicate = null);
+
+        // CRUD Operations
+        Task InsertAsync(T entity, IClientSessionHandle? session = null);
+        Task InsertManyAsync(IEnumerable<T> entities, IClientSessionHandle? session = null);
+        Task UpdateAsync(T entity, IClientSessionHandle? session = null);
+        Task UpdateManyAsync(FilterDefinition<T> filter, UpdateDefinition<T> update, IClientSessionHandle? session = null);
+        Task DeleteAsync(object id, IClientSessionHandle? session = null);
+        Task DeleteManyAsync(Expression<Func<T, bool>> predicate, IClientSessionHandle? session = null);
+
+        // Aggregation
+        Task<IEnumerable<TProject>> AggregateAsync<TProject>(PipelineDefinition<T, TProject> pipeline);
+
         Task InsertAsync(T entity);
         public  Task InsertMoreAsync(List<T> entitys);
         public Task UpdateAsync(
