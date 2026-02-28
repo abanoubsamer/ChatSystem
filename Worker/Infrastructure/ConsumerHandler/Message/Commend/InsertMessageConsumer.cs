@@ -47,9 +47,6 @@ namespace Worker.Consumers
 
             await _Messagerepo.AddNewMessageAsync(newMessage);
 
-            //await _ackHandler.HandleAckAsync(
-            //    newMessage.Id.ToString(), newMessage.SenderId, newMessage.ChatId,
-            //    newMessage.SenderId, newMessage.SentAt, true);
 
             var createdEvent = new MessageCreatedEvent
             {
@@ -76,11 +73,14 @@ namespace Worker.Consumers
                 SenderId = command.SenderId,
                 clientMessageId = command.clientMessageId,
                 Content = command.Content,
+                ForwardedFromMessageId = command.ForwardedFromMessage,
+                ReplyToMessageId = command.ReplyToMessage,
                 SenderName = command.SenderName,
                 MessageType = command.MessageType,
                 ChatId = command.ChatId,
                 Attachments = command.AttachmentsDto?.Select(a => new MessageAttachment
                 {
+                    Id = ObjectId.GenerateNewId(),
                     Duration = a.Duration,
                     FileName = a.FileName,
                     FileSize = a.FileSize,

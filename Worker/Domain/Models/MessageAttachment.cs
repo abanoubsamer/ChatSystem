@@ -18,7 +18,7 @@ namespace Domain.Models
         public string ThumbnailUrl { get; set; }
 
         // For video/audio
-        public int? Duration { get; set; }
+        public float? Duration { get; set; }
 
         // For images/videos
         public int? Width { get; set; }

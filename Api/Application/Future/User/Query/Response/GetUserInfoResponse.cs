@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Application.Dtos.Contact;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -12,9 +13,12 @@ namespace Application.Future.User.Query.Response
         public string UserName { get; set; }
         public string UserId { get; set; }
         public string Email { get; set; }
-
         public long LastVerion { get; set; }
         public string Avater { get; set; }
+        public List<ContactDto> contacts { get; set; } 
 
     }
+
+    
+
 }
