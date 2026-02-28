@@ -12,11 +12,11 @@ using Application.Abstractions.Session;
 using Contracts.Message.Commend;
 using Contracts.Message.Events;
 using Infrastructure.Extension;
-using Infrastructure.Handler.MethodsHandler.Heartbeat;
-using Infrastructure.Handler.MethodsHandler.Message;
-using Infrastructure.Handler.MethodsHandler.Snapshots;
-using Infrastructure.Handler.MethodsHandler.Sync;
-using Infrastructure.Handler.MethodsHandler.State;
+using Application.Handlers.Heartbeat;
+using Application.Handlers.Message;
+using Application.Handlers.Snapshots;
+using Application.Handlers.Sync;
+using Application.Handlers.State;
 using Infrastructure.Handler.WebSocketHandler.Engress;
 using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Message;
 using Infrastructure.Handler.WebSocketHandler.Ingress;
@@ -188,14 +188,15 @@ namespace Infrastructure
 
 
             // Method Handlers
-            services.AddSingleton<IMethodHandler, NewMessageMethodHandler>();
-            services.AddSingleton<IMethodHandler, HeartbeatMethodHandler>();
-            services.AddSingleton<IMethodHandler, MessageReceivedAckMethodHandler>();
-            services.AddSingleton<IMethodHandler, SyncUserAckMethodHanlder>();
-            services.AddSingleton<IMethodHandler, ReceivedSnapAckBatchMethodHandler>();
-            services.AddSingleton<IMethodHandler, MessageSeenAckMethodHandler>();
-            services.AddSingleton<IMethodHandler, UserStateMethodHndler>();
-            services.AddSingleton<IMethodHandler, GroupStateMethodHndler>();
+            services.AddScoped<IMethodHandler, NewMessageMethodHandler>();
+            services.AddScoped<IMethodHandler, HeartbeatMethodHandler>();
+            services.AddScoped<IMethodHandler, MessageReceivedAckMethodHandler>();
+            services.AddScoped<IMethodHandler, SyncUserAckMethodHanlder>();
+            services.AddScoped<IMethodHandler, ReceivedSnapAckBatchMethodHandler>();
+            services.AddScoped<IMethodHandler, MessageSeenAckMethodHandler>();
+            services.AddScoped<IMethodHandler, UserStateMethodHndler>();
+            services.AddScoped<IMethodHandler, GroupStateMethodHndler>();
+            services.AddScoped<IMethodHandler, ReceivedAckBatchMethodHandler>();
 
 
             // Background Services
