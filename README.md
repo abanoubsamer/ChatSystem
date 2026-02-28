@@ -1,4 +1,4 @@
-# ChatSystem - نظام دردشة في الوقت الفعلي عالي الأداء
+# ChatSystem - High-Performance Real-Time Chat System
 
 <div align="center">
 
@@ -9,227 +9,227 @@
 ![WebSockets](https://img.shields.io/badge/WebSockets-000000?style=for-the-badge&logo=websocket&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 
-**نظام دردشة احترافي مبني باستخدام .NET 9 مع WebSockets و MongoDB**
+**Professional chat system built with .NET 9, WebSockets, and MongoDB**
 
 </div>
 
 ---
 
-## 📋 فهرس المحتويات
+## 📋 Table of Contents
 
-- [نظرة عامة](#-نظرة-عامة)
-- [المميزات الرئيسية](#-المميزات-الرئيسية)
-- [الهيكل المعماري](#-الهيكل-المعماري)
-- [التقنيات المستخدمة](#-التقنيات-المستخدمة)
-- [متطلبات النظام](#-متطلبات-النظام)
-- [التثبيت والتشغيل](#-التثبيت-والتشغيل)
-- [إعدادات التطبيق](#-إعدادات-التطبيق)
-- [واجهة برمجة التطبيقات API](#-واجهة-برمجة-التطبيقات-api)
-- [النماذج الرئيسية](#-النماذج-الرئيسية)
-- [الأمان](#-الأمان)
-- [الاختبارات](#-الاختبارات)
-- [الـ Benchmarks](#-الـ-benchmarks)
-- [الدعم والمساهمة](#-الدعم-والمساهمة)
-- [الترخيص](#-الترخيص)
-
----
-
-## 🔭 نظرة عامة
-
-**ChatSystem** هو نظام دردشة في الوقت الفعلي (Real-time Chat System) عالي الأداء مبني باستخدام أحدث التقنيات. يتميز النظام بمعمارية متناهية الصغر (Microservices Architecture) مصممة للتعامل مع ملايين الاتصالات المتزامنة مع الحفاظ على استجابة فائقة السرعة واستخدام فعال للموارد.
-
-### 🎯 أهداف المشروع
-
-- **أداء عالي**: معالجة آلاف الرسائل في الثانية
-- **قابلية التوسع**: تصميم يسمح بالتوسع الأفقي بسهولة
-- **موثوقية**: ضمان توصيل الرسائل وإشعارات القراءة
-- **أمان**: حماية البيانات والاتصالات
-- **كفاءة**: استخدام أمثل للذاكرة والمعالج
+- [Overview](#-overview)
+- [Key Features](#-key-features)
+- [Architecture](#-architecture)
+- [Technologies Used](#-technologies-used)
+- [System Requirements](#-system-requirements)
+- [Installation & Setup](#-installation--setup)
+- [Configuration](#-configuration)
+- [API Documentation](#-api-documentation)
+- [Core Models](#-core-models)
+- [Security](#-security)
+- [Testing](#-testing)
+- [Benchmarks](#-benchmarks)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ---
 
-## ✨ المميزات الرئيسية
+## 🔭 Overview
 
-### 💬 نظام الرسائل
-- ✅ **رسائل فورية**: إرسال واستقبال الرسائل في الوقت الفعلي
-- ✅ **تتبع التسليم**: معرفة حالة تسليم كل رسالة
-- ✅ **إشعارات القراءة**: معرفة متى تم قراءة الرسالة
-- ✅ **الردود**: الرد على رسائل محددة
-- ✅ **التفاعلات**: إضافة ردود فعل (إيموجي) على الرسائل
-- ✅ **المرفقات**: دعم إرسال الملفات والصور
+**ChatSystem** is a high-performance real-time chat system built with cutting-edge technologies. The system features a microservices architecture designed to handle millions of concurrent connections while maintaining ultra-low response times and efficient resource utilization.
 
-### 👥 إدارة المحادثات
-- ✅ **محادثات فردية**: دردشة بين مستخدمين
-- ✅ **محادثات جماعية**: مجموعات دردشة متعددة الأعضاء
-- ✅ **إدارة الأعضاء**: إضافة وإزالة أعضاء من المجموعات
-- ✅ **الصلاحيات**: نظام صلاحيات للمشرفين
+### 🎯 Project Goals
 
-### 📞 المكالمات
-- ✅ **مكالمات صوتية**: مكالمات صوتية عالية الجودة
-- ✅ **مكالمات فيديو**: مكالمات فيديو جماعية
-- ✅ **سجل المكالمات**: تتبع جميع المكالمات
-
-### 📱 الميزات الإضافية
-- ✅ **الحالة (Stories)**: مشاركة الحالات التي تختفي بعد 24 ساعة
-- ✅ **جهات الاتصال**: إدارة قائمة جهات الاتصال
-- ✅ **البحث**: البحث في الرسائل والمحادثات
-- ✅ **الإشعارات**: إشعارات فورية للرسائل الجديدة
+- **High Performance**: Process thousands of messages per second
+- **Scalability**: Design that allows easy horizontal scaling
+- **Reliability**: Guaranteed message delivery and read notifications
+- **Security**: Data and connection protection
+- **Efficiency**: Optimal memory and CPU usage
 
 ---
 
-## 🏗️ الهيكل المعماري
+## ✨ Key Features
+
+### 💬 Messaging System
+- ✅ **Instant Messages**: Send and receive messages in real-time
+- ✅ **Delivery Tracking**: Know the delivery status of each message
+- ✅ **Read Receipts**: Know when messages are read
+- ✅ **Replies**: Reply to specific messages
+- ✅ **Reactions**: Add emoji reactions to messages
+- ✅ **Attachments**: Support for sending files and images
+
+### 👥 Chat Management
+- ✅ **Private Chats**: One-on-one conversations
+- ✅ **Group Chats**: Multi-member chat groups
+- ✅ **Member Management**: Add and remove members from groups
+- ✅ **Permissions**: Admin permission system
+
+### 📞 Calls
+- ✅ **Voice Calls**: High-quality voice calls
+- ✅ **Video Calls**: Group video calls
+- ✅ **Call History**: Track all calls
+
+### 📱 Additional Features
+- ✅ **Stories**: Share status updates that disappear after 24 hours
+- ✅ **Contacts**: Manage contact list
+- ✅ **Search**: Search messages and chats
+- ✅ **Notifications**: Instant notifications for new messages
+
+---
+
+## 🏗️ Architecture
 
 ```
 ChatSystem/
-├── 📁 Api/                          # واجهة برمجة التطبيقات الرئيسية
-│   ├── Api/                         # نقاط النهاية (Endpoints)
-│   ├── Application/                 # منطق التطبيق (CQRS, MediatR)
-│   ├── Domain/                      # النماذج والكيانات
-│   └── Infrastructure/              # البنية التحتية (MongoDB, Repositories)
+├── 📁 Api/                          # Main API
+│   ├── Api/                         # Endpoints
+│   ├── Application/                 # Application logic (CQRS, MediatR)
+│   ├── Domain/                      # Models and entities
+│   └── Infrastructure/              # Infrastructure (MongoDB, Repositories)
 │
-├── 📁 Gateway/                      # بوابة الاتصال (WebSocket Gateway)
-│   ├── Application/                 # منطق التطبيق
-│   ├── Domain/                      # النماذج
-│   ├── Gateway/                     # خادم WebSocket
-│   └── Infrastructure/              # البنية التحتية
+├── 📁 Gateway/                      # WebSocket Gateway
+│   ├── Application/                 # Application logic
+│   ├── Domain/                      # Models
+│   ├── Gateway/                     # WebSocket server
+│   └── Infrastructure/              # Infrastructure
 │
-├── 📁 Worker/                       # خدمات الخلفية (Background Services)
-│   ├── Application/                 # منطق التطبيق
-│   ├── Benchmarks/                  # اختبارات الأداء
-│   ├── Domain/                      # النماذج والحالات
+├── 📁 Worker/                       # Background services
+│   ├── Application/                 # Application logic
+│   ├── Benchmarks/                  # Performance benchmarks
+│   ├── Domain/                      # Models and states
 │   ├── Infrastructure/              # Orleans Grains, Services
-│   ├── Tests/                       # الاختبارات الوحدوية
-│   └── Worker/                      # خدمة العامل الرئيسية
+│   ├── Tests/                       # Unit tests
+│   └── Worker/                      # Main worker service
 │
-├── 📁 BroadcastPreparationWorker/   # خدمة تحضير البث
+├── 📁 BroadcastPreparationWorker/   # Broadcast preparation service
 │   ├── Application/
 │   ├── Domain/
 │   ├── Infrastructure/
-│   └── BroadcastPreparationWorker/  # خدمة العامل
+│   └── BroadcastPreparationWorker/  # Worker service
 │
-└── 📁 Shared/                       # المكتبات المشتركة
-    └── Contracts/                   # العقود والأحداث المشتركة
+└── 📁 Shared/                       # Shared libraries
+    └── Contracts/                   # Shared contracts and events
 ```
 
-### 🎯 مكونات النظام
+### 🎯 System Components
 
-#### 1. **Api** - واجهة برمجة التطبيقات
-- نقاط نهاية RESTful API
-- المصادقة والتفويض باستخدام JWT
-- إدارة المستخدمين والمحادثات
-- التكامل مع قاعدة البيانات MongoDB
+#### 1. **Api** - REST API
+- RESTful API endpoints
+- JWT authentication and authorization
+- User and chat management
+- MongoDB database integration
 
-#### 2. **Gateway** - بوابة WebSocket
-- إدارة اتصالات WebSocket
-- توجيه الرسائل في الوقت الفعلي
-- التحقق من صحة الاتصالات
-- موازنة الحمل
+#### 2. **Gateway** - WebSocket Gateway
+- WebSocket connection management
+- Real-time message routing
+- Connection validation
+- Load balancing
 
-#### 3. **Worker** - خدمات الخلفية
-- معالجة الأحداث باستخدام MassTransit + RabbitMQ
-- إدارة حالات المحادثات باستخدام Orleans
-- تتبع تسليم الرسائل والقراءة
-- معالجة الدفعات (Batch Processing)
+#### 3. **Worker** - Background Services
+- Event processing with MassTransit + RabbitMQ
+- Chat state management with Orleans
+- Message delivery and read tracking
+- Batch processing
 
 #### 4. **BroadcastPreparationWorker**
-- تحضير الرسائل للبث الجماعي
-- تحسين أداء إرسال الرسائل
+- Message preparation for broadcast
+- Performance optimization for message sending
 
 ---
 
-## 🛠️ التقنيات المستخدمة
+## 🛠️ Technologies Used
 
-### 🖥️ الإطار واللغة
-| التقنية | الإصدار | الوصف |
-|---------|---------|-------|
-| .NET | 9.0 | إطار العمل الرئيسي |
-| C# | 12 | لغة البرمجة |
+### 🖥️ Framework & Language
+| Technology | Version | Description |
+|------------|---------|-------------|
+| .NET | 9.0 | Main framework |
+| C# | 12 | Programming language |
 
-### 🗄️ قواعد البيانات والتخزين
-| التقنية | الإصدار | الوصف |
-|---------|---------|-------|
-| MongoDB | 3.5.2 | قاعدة البيانات الرئيسية |
-| MongoDB.Driver | 3.5.2 | برنامج التشغيل |
-| Orleans.Providers.MongoDB | 8.2.0 | تخزين Orleans |
+### 🗄️ Database & Storage
+| Technology | Version | Description |
+|------------|---------|-------------|
+| MongoDB | 3.5.2 | Primary database |
+| MongoDB.Driver | 3.5.2 | Driver |
+| Orleans.Providers.MongoDB | 8.2.0 | Orleans storage |
 
-### 📡 الاتصال والرسائل
-| التقنية | الإصدار | الوصف |
-|---------|---------|-------|
-| SignalR | 1.2.0 | اتصالات WebSocket |
-| MassTransit | 9.0.0 | نظام الرسائل |
-| RabbitMQ | - | وسيط الرسائل |
+### 📡 Messaging & Communication
+| Technology | Version | Description |
+|------------|---------|-------------|
+| SignalR | 1.2.0 | WebSocket connections |
+| MassTransit | 9.0.0 | Message bus |
+| RabbitMQ | - | Message broker |
 
-### 🧩 Orleans - إطار العمل الافتراضي
-| التقنية | الإصدار | الوصف |
-|---------|---------|-------|
-| Microsoft.Orleans.Server | 8.2.0 | خادم Orleans |
-| Microsoft.Orleans.Client | 8.2.0 | عميل Orleans |
-| Microsoft.Orleans.Reminders | 8.2.0 | التذكيرات |
+### 🧩 Orleans - Virtual Actor Framework
+| Technology | Version | Description |
+|------------|---------|-------------|
+| Microsoft.Orleans.Server | 8.2.0 | Orleans server |
+| Microsoft.Orleans.Client | 8.2.0 | Orleans client |
+| Microsoft.Orleans.Reminders | 8.2.0 | Reminders |
 
-### 🔒 الأمان
-| التقنية | الإصدار | الوصف |
-|---------|---------|-------|
-| JWT Bearer | 9.0.10 | المصادقة |
-| BCrypt.Net-Next | 4.0.3 | تشفير كلمات المرور |
+### 🔒 Security
+| Technology | Version | Description |
+|------------|---------|-------------|
+| JWT Bearer | 9.0.10 | Authentication |
+| BCrypt.Net-Next | 4.0.3 | Password hashing |
 
-### 📦 أدوات إضافية
-| التقنية | الإصدار | الوصف |
-|---------|---------|-------|
-| MessagePack | 3.1.4 | تسلسل البيانات |
-| BenchmarkDotNet | - | اختبارات الأداء |
+### 📦 Additional Tools
+| Technology | Version | Description |
+|------------|---------|-------------|
+| MessagePack | 3.1.4 | Data serialization |
+| BenchmarkDotNet | - | Performance testing |
 
 ---
 
-## 📋 متطلبات النظام
+## 📋 System Requirements
 
-### البرامج المطلوبة
+### Required Software
 - [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
-- [MongoDB](https://www.mongodb.com/try/download/community) (إصدار 6.0+)
-- [RabbitMQ](https://www.rabbitmq.com/download.html) (إصدار 3.12+)
-- [Docker](https://www.docker.com/get-started) (اختياري)
+- [MongoDB](https://www.mongodb.com/try/download/community) (version 6.0+)
+- [RabbitMQ](https://www.rabbitmq.com/download.html) (version 3.12+)
+- [Docker](https://www.docker.com/get-started) (optional)
 
-### متطلبات النظام
-- **نظام التشغيل**: Windows 10/11, Linux, macOS
-- **الذاكرة**: 4 GB RAM (مستحسن 8 GB)
-- **المعالج**: ثنائي النواة (مستحسن رباعي النواة)
-- **التخزين**: 10 GB مساحة خالية
+### Hardware Requirements
+- **Operating System**: Windows 10/11, Linux, macOS
+- **Memory**: 4 GB RAM (recommended 8 GB)
+- **Processor**: Dual-core (recommended quad-core)
+- **Storage**: 10 GB free space
 
 ---
 
-## 🚀 التثبيت والتشغيل
+## 🚀 Installation & Setup
 
-### 1. استنساخ المستودع
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/abanoubsamer/ChatSystem.git
 cd ChatSystem
 ```
 
-### 2. إعداد قاعدة البيانات MongoDB
+### 2. Setup MongoDB
 
 ```bash
-# باستخدام Docker
+# Using Docker
 docker run -d -p 27017:27017 --name mongodb mongo:latest
 
-# أو تثبيت محلي (Ubuntu)
+# Or local installation (Ubuntu)
 sudo apt-get install mongodb
 sudo systemctl start mongodb
 ```
 
-### 3. إعداد RabbitMQ
+### 3. Setup RabbitMQ
 
 ```bash
-# باستخدام Docker
+# Using Docker
 docker run -d -p 5672:5672 -p 15672:15672 --name rabbitmq rabbitmq:3-management
 
-# أو تثبيت محلي (Ubuntu)
+# Or local installation (Ubuntu)
 sudo apt-get install rabbitmq-server
 sudo systemctl start rabbitmq-server
 ```
 
-### 4. إعدادات الاتصال
+### 4. Configure Connection Settings
 
-قم بتحديث ملف `appsettings.json` في كل مشروع:
+Update the `appsettings.json` file in each project:
 
 ```json
 {
@@ -251,64 +251,64 @@ sudo systemctl start rabbitmq-server
 }
 ```
 
-### 5. بناء المشروع
+### 5. Build the Project
 
 ```bash
-# بناء جميع المشاريع
+# Build all projects
 dotnet build ChatSystem.sln
 
-# أو بناء مشروع محدد
+# Or build specific project
 dotnet build Api/Api.slnx
 dotnet build Gateway/Gateway.slnx
 dotnet build Worker/Worker.slnx
 ```
 
-### 6. تشغيل المشاريع
+### 6. Run the Services
 
-#### تشغيل Api
+#### Run Api
 ```bash
 cd Api/Api
 dotnet run
 ```
-- يعمل على: `https://localhost:5001`
+- Runs on: `https://localhost:5001`
 
-#### تشغيل Gateway
+#### Run Gateway
 ```bash
 cd Gateway/Gateway
 dotnet run
 ```
-- يعمل على: `https://localhost:5002`
+- Runs on: `https://localhost:5002`
 
-#### تشغيل Worker
+#### Run Worker
 ```bash
 cd Worker/Worker
 dotnet run
 ```
 
-#### تشغيل BroadcastPreparationWorker
+#### Run BroadcastPreparationWorker
 ```bash
 cd BroadcastPreparationWorker/BroadcastPreparationWorker
 dotnet run
 ```
 
-### 7. التشغيل باستخدام Docker
+### 7. Run with Docker
 
 ```bash
-# بناء الصور
+# Build images
 docker-compose build
 
-# تشغيل جميع الخدمات
+# Run all services
 docker-compose up -d
 
-# عرض السجلات
+# View logs
 docker-compose logs -f
 ```
 
 ---
 
-## ⚙️ إعدادات التطبيق
+## ⚙️ Configuration
 
-### ملف appsettings.json
+### appsettings.json File
 
 ```json
 {
@@ -355,11 +355,11 @@ docker-compose logs -f
 
 ---
 
-## 🔌 واجهة برمجة التطبيقات API
+## 🔌 API Documentation
 
-### المصادقة
+### Authentication
 
-#### تسجيل مستخدم جديد
+#### Register New User
 ```http
 POST /api/auth/register
 Content-Type: application/json
@@ -372,7 +372,7 @@ Content-Type: application/json
 }
 ```
 
-#### تسجيل الدخول
+#### Login
 ```http
 POST /api/auth/login
 Content-Type: application/json
@@ -383,65 +383,65 @@ Content-Type: application/json
 }
 ```
 
-### إدارة المحادثات
+### Chat Management
 
-#### إنشاء محادثة جديدة
+#### Create New Chat
 ```http
 POST /api/chats
 Authorization: Bearer {token}
 Content-Type: application/json
 
 {
-  "name": "فريق التطوير",
+  "name": "Development Team",
   "type": "Group",
   "memberIds": ["user1", "user2", "user3"]
 }
 ```
 
-#### الحصول على محادثات المستخدم
+#### Get User Chats
 ```http
 GET /api/chats
 Authorization: Bearer {token}
 ```
 
-#### إرسال رسالة
+#### Send Message
 ```http
 POST /api/chats/{chatId}/messages
 Authorization: Bearer {token}
 Content-Type: application/json
 
 {
-  "content": "مرحباً بالجميع!",
+  "content": "Hello everyone!",
   "type": "Text",
   "replyToMessageId": null
 }
 ```
 
-### WebSocket الاتصال
+### WebSocket Connection
 
 ```javascript
-// الاتصال بالبوابة
+// Connect to gateway
 const connection = new WebSocket('wss://localhost:5002/ws?token={jwt_token}');
 
-// إرسال رسالة
+// Send message
 connection.send(JSON.stringify({
   type: 'SendMessage',
   chatId: 'chat-id-here',
-  content: 'مرحباً!'
+  content: 'Hello!'
 }));
 
-// استقبال الرسائل
+// Receive messages
 connection.onmessage = (event) => {
   const message = JSON.parse(event.data);
-  console.log('رسالة جديدة:', message);
+  console.log('New message:', message);
 };
 ```
 
 ---
 
-## 📊 النماذج الرئيسية
+## 📊 Core Models
 
-### المستخدم (AppUser)
+### AppUser
 ```csharp
 public class AppUser
 {
@@ -455,7 +455,7 @@ public class AppUser
 }
 ```
 
-### المحادثة (Chat)
+### Chat
 ```csharp
 public class Chat
 {
@@ -469,7 +469,7 @@ public class Chat
 }
 ```
 
-### الرسالة (Message)
+### Message
 ```csharp
 public class Message
 {
@@ -487,27 +487,27 @@ public class Message
 
 ---
 
-## 🔒 الأمان
+## 🔒 Security
 
-### ميزات الأمان المطبقة
+### Implemented Security Features
 
-- ✅ **JWT Authentication**: مصادقة آمنة باستخدام JSON Web Tokens
-- ✅ **BCrypt Password Hashing**: تشفير قوي لكلمات المرور
-- ✅ **Input Validation**: التحقق من صحة جميع المدخلات
-- ✅ **Rate Limiting**: تقييد معدل الطلبات
-- ✅ **CORS Protection**: حماية من طلبات المواقع المتقاطعة
-- ✅ **HTTPS Enforcement**: تشفير الاتصالات
+- ✅ **JWT Authentication**: Secure authentication using JSON Web Tokens
+- ✅ **BCrypt Password Hashing**: Strong password encryption
+- ✅ **Input Validation**: Validate all inputs
+- ✅ **Rate Limiting**: Request rate limiting
+- ✅ **CORS Protection**: Cross-origin request protection
+- ✅ **HTTPS Enforcement**: Connection encryption
 
-### أفضل الممارسات
+### Best Practices
 
 ```csharp
-// تشفير كلمة المرور
+// Hash password
 string hashedPassword = BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12);
 
-// التحقق من كلمة المرور
+// Verify password
 bool isValid = BCrypt.Net.BCrypt.Verify(password, hashedPassword);
 
-// إنشاء JWT
+// Generate JWT
 var token = new JwtSecurityToken(
     issuer: _jwtSettings.Issuer,
     audience: _jwtSettings.Audience,
@@ -519,39 +519,39 @@ var token = new JwtSecurityToken(
 
 ---
 
-## 🧪 الاختبارات
+## 🧪 Testing
 
-### تشغيل الاختبارات
+### Run Tests
 
 ```bash
-# جميع الاختبارات
+# All tests
 dotnet test
 
-# اختبارات مشروع محدد
+# Specific project tests
 dotnet test Worker/Tests/Tests.csproj
 
-# مع التغطية
+# With coverage
 dotnet test --collect:"XPlat Code Coverage"
 ```
 
-### أنواع الاختبارات
+### Test Types
 
-- **Unit Tests**: اختبارات وحدوية للمنطق التجاري
-- **Integration Tests**: اختبارات تكامل للـ API
-- **Benchmarks**: اختبارات أداء
+- **Unit Tests**: Unit tests for business logic
+- **Integration Tests**: API integration tests
+- **Benchmarks**: Performance benchmarks
 
 ---
 
-## 📈 الـ Benchmarks
+## 📈 Benchmarks
 
-### تشغيل اختبارات الأداء
+### Run Performance Tests
 
 ```bash
 cd Worker/Benchmarks
 dotnet run --configuration Release
 ```
 
-### النتائج المتوقعة
+### Expected Results
 
 ```
 |        Method | MemberCount |     Mean |    Error |   StdDev |   Gen0 | Allocated |
@@ -566,47 +566,47 @@ dotnet run --configuration Release
 |      ReadFlow |        1000 | 4.456 ms | 44.56 us | 101.2 us | 44.56  |  867 KB   |
 ```
 
-### تحسينات الأداء
+### Performance Optimizations
 
-- **AckStateDs**: هيكل بيانات مُحسّن للذاكرة لتتبع حالات الرسائل
-- **Bitmap Indexing**: فهرسة بتية للتسليم والقراءة
-- **Batch Processing**: معالجة الدفعات لتقليل قاعدة البيانات
-- **Memory Caching**: تخزين مؤقت في الذاكرة للأعضاء
-
----
-
-## 🤝 الدعم والمساهمة
-
-### الإبلاغ عن المشكلات
-
-إذا واجهت أي مشكلة، يرجى فتح [Issue](https://github.com/abanoubsamer/ChatSystem/issues) مع:
-- وصف المشكلة
-- خطوات إعادة الإنتاج
-- الإصدار المستخدم
-- سجلات الأخطاء (Logs)
-
-### المساهمة في المشروع
-
-نرحب بمساهماتكم! للمساهمة:
-
-1. **Fork** المستودع
-2. أنشئ **Branch** جديد: `git checkout -b feature/amazing-feature`
-3. **Commit** تغييراتك: `git commit -m 'Add amazing feature'`
-4. **Push** إلى الفرع: `git push origin feature/amazing-feature`
-5. افتح **Pull Request**
-
-### دليل المساهمة
-
-- اتبع [Conventional Commits](https://www.conventionalcommits.org/)
-- اكتب اختبارات للميزات الجديدة
-- حافظ على تغطية الكود أعلى من 80%
-- قم بتحديث الوثائق
+- **AckStateDs**: Memory-optimized data structure for message state tracking
+- **Bitmap Indexing**: Bit indexing for delivery and read status
+- **Batch Processing**: Batch processing to reduce database calls
+- **Memory Caching**: In-memory caching for members
 
 ---
 
-## 📝 الترخيص
+## 🤝 Contributing
 
-هذا المشروع مرخص بموجب [MIT License](LICENSE).
+### Reporting Issues
+
+If you encounter any issues, please open an [Issue](https://github.com/abanoubsamer/ChatSystem/issues) with:
+- Issue description
+- Steps to reproduce
+- Version used
+- Error logs
+
+### Contributing to the Project
+
+We welcome your contributions! To contribute:
+
+1. **Fork** the repository
+2. Create a new **Branch**: `git checkout -b feature/amazing-feature`
+3. **Commit** your changes: `git commit -m 'Add amazing feature'`
+4. **Push** to the branch: `git push origin feature/amazing-feature`
+5. Open a **Pull Request**
+
+### Contribution Guidelines
+
+- Follow [Conventional Commits](https://www.conventionalcommits.org/)
+- Write tests for new features
+- Maintain code coverage above 80%
+- Update documentation
+
+---
+
+## 📝 License
+
+This project is licensed under the [MIT License](LICENSE).
 
 ```
 MIT License
@@ -630,7 +630,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 
 ---
 
-## 👨‍💻 المؤلف
+## 👨‍💻 Author
 
 **Abanoub Samer**
 
@@ -639,17 +639,17 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 
 ---
 
-## 🙏 شكر وتقدير
+## 🙏 Acknowledgments
 
-- [Microsoft Orleans](https://github.com/dotnet/orleans) - إطار العمل الافتراضي
-- [MassTransit](https://masstransit.io/) - نظام الرسائل
-- [MongoDB](https://www.mongodb.com/) - قاعدة البيانات
-- [RabbitMQ](https://www.rabbitmq.com/) - وسيط الرسائل
+- [Microsoft Orleans](https://github.com/dotnet/orleans) - Virtual actor framework
+- [MassTransit](https://masstransit.io/) - Message bus
+- [MongoDB](https://www.mongodb.com/) - Database
+- [RabbitMQ](https://www.rabbitmq.com/) - Message broker
 
 ---
 
 <div align="center">
 
-**⭐ لا تنسَ النجمة على المشروع إذا أعجبك! ⭐**
+**⭐ Don't forget to star the project if you like it! ⭐**
 
 </div>
