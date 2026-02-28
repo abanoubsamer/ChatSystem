@@ -8,5 +8,8 @@ namespace Contracts.Message.Dtos
 {
     public class MessageReplyDto
     {
+        public string MessageId { get; set; }
+
+
     }
 }

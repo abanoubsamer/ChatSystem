@@ -5,6 +5,7 @@ using Application.Abstractions.Repositories.MessageReceipts;
 using Application.Abstractions.Services.Publisher;
 using Application.Dtos;
 using Application.Dtos.Ack;
+using Domain.Models.Result;
 using Application.Dtos.ChatMember.Command;
 using Application.Dtos.MessageReceipts.Command;
 using Contracts.Enums;

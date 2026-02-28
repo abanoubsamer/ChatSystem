@@ -10,6 +10,7 @@ namespace Application.Abstractions.Repositories.User
 {
     public interface IUserQueriesRepository
     {
+
         Task<GetUserInfoResponse> GetUserInfoAsync(ObjectId userId);
     }
 }

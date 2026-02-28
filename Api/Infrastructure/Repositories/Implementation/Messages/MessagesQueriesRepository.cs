@@ -63,11 +63,31 @@ namespace Infrastructure.Repositories.Implementation.Messages
                         { "SenderId", 1 },
                         { "Content", 1 },
                         { "aggregate", 1 },
+                        { "ReplyToMessageId", 1 },
+                        { "ForwardedFromMessageId", 1 },
                         { "SentAt", 1 },
                         { "EditedAt", 1 },
                         { "IsPinned", 1 },
                         { "SenderName", 1 },
-                        { "Attachments", 1 },
+                        { "Attachments", new BsonDocument("$map", new BsonDocument
+                                {
+                                    { "input", "$Attachments" },
+                                    { "as", "att" },
+                                    { "in", new BsonDocument
+                                        {
+                                            { "_id", new BsonDocument("$toString", "$$att._id") },
+                                            { "FileUrl", "$$att.FileUrl" },
+                                            { "FileName", "$$att.FileName" },
+                                            { "FileSize", "$$att.FileSize" },
+                                            { "MimeType", "$$att.MimeType" },
+                                            { "ThumbnailUrl", "$$att.ThumbnailUrl" },
+                                            { "Duration", "$$att.Duration" },
+                                            { "Width", "$$att.Width" },
+                                            { "Height", "$$att.Height" }
+                                        }
+                                    }
+                                })
+                        },
                         { "Reactions", 1 },
                         { "messageDeliveryStatus", "$MessageDeliveryStatus" }
                   })
@@ -83,48 +103,49 @@ namespace Infrastructure.Repositories.Implementation.Messages
         }
 
 
-
         public async Task<List<UserMessageReadInfoResponse>> GetMessageStatusInfoAsync(string targetMessageId)
         {
             var targetObjectId = new ObjectId(targetMessageId);
 
-            var sender = await _repo.FindOneAsync(x => x.Id == targetObjectId, x => x.SenderId);
-            var senderObjectId = new ObjectId(sender);
+            var result = await _repo.FindOneAsync(x => x.Id == targetObjectId, x =>  new { x.SenderId,x.ChatId} );
+            var senderObjectId = new ObjectId(result.SenderId);
+            var ChatObjectId = new ObjectId(result.ChatId);
 
             var collection = _repoStutesDelivered.GetMongoCollection();
 
             var pipeline = new[]
             {
-        // 1️⃣ فلترة
-        new BsonDocument("$match", new BsonDocument
-        {
-            { "MessageId", new BsonDocument("$gte", targetObjectId) },
-            { "UserId",    new BsonDocument("$ne",  senderObjectId) }
-        }),
+                // 1️⃣ فلترة
+                new BsonDocument("$match", new BsonDocument
+                {
+                    { "MessageId", new BsonDocument("$gte", targetObjectId) },
+                    { "ChatId", new BsonDocument("$eq", ChatObjectId) },
+                    { "UserId",    new BsonDocument("$ne",  senderObjectId) }
+                }),
 
-        // 2️⃣ ترتيب
-        new BsonDocument("$sort", new BsonDocument("MessageId", 1)),
+                // 2️⃣ ترتيب
+                new BsonDocument("$sort", new BsonDocument("MessageId", 1)),
 
-        // 3️⃣ Join مع users collection
-        new BsonDocument("$lookup", new BsonDocument
-        {
-            { "from", "AppUser" }, // اسم collection الفعلي في Mongo
-            { "localField", "UserId" },
-            { "foreignField", "_id" },
-            { "as", "UserInfo" }
-        }),
+                // 3️⃣ Join مع users collection
+                new BsonDocument("$lookup", new BsonDocument
+                {
+                    { "from", "AppUser" }, // اسم collection الفعلي في Mongo
+                    { "localField", "UserId" },
+                    { "foreignField", "_id" },
+                    { "as", "UserInfo" }
+                }),
 
-        new BsonDocument("$unwind", "$UserInfo"),
+                new BsonDocument("$unwind", "$UserInfo"),
 
-        // 4️⃣ Group
-        new BsonDocument("$group", new BsonDocument
-        {
-            { "_id", "$UserId" },
-            { "UserName", new BsonDocument("$first", "$UserInfo.UserName") },
-            { "ReadAt", new BsonDocument("$first", "$ReadAt") },
-            { "DeliveredAt", new BsonDocument("$first", "$DeliveredAt") }
-        })
-    };
+                // 4️⃣ Group
+                new BsonDocument("$group", new BsonDocument
+                {
+                    { "_id", "$UserId" },
+                    { "UserName", new BsonDocument("$first", "$UserInfo.UserName") },
+                    { "ReadAt", new BsonDocument("$first", "$ReadAt") },
+                    { "DeliveredAt", new BsonDocument("$first", "$DeliveredAt") }
+                })
+            };
 
             var results = await collection
                 .Aggregate<BsonDocument>(pipeline)

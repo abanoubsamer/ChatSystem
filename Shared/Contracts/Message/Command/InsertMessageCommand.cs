@@ -16,9 +16,9 @@ namespace Contracts.Message.Commend
         public string clientMessageId { get; set; }
         
         public string Content { get; set; }
-        public MessageReplyDto? ReplyToMessageDto { get; set; }
+        public string? ReplyToMessage { get; set; }
 
-        public MessageForwardedDto? ForwardedFromMessageDto { get; set; }
+        public string? ForwardedFromMessage { get; set; }
 
         public virtual MessageType MessageType { get; set; }
 

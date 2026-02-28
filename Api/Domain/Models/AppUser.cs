@@ -30,7 +30,6 @@ namespace Domain.Models
         public DateTime UpdateTime { get; set; } 
 
         public List<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
-        public  List<UserContact> Contacts { get; set; }
 
     }
 }
