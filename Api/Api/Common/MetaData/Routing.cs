@@ -66,9 +66,10 @@ namespace Api.Common.MetaData
         {
             public const string Prefix = Role + "Contact/";
             public const string Add = Prefix + "Add";
+            public const string UpdateContact = Prefix + "UpdateContact";
             public const string DeleteContact = Prefix + "DeleteContact";
-            public const string GetUserContract = Prefix + "GetUserContract/"+ SingelId;
-            public const string GetCacheUserContract = Prefix + "GetCacheUserContract/"+ SingelId;
+            public const string GetUserContact = Prefix + "GetUserContact/"+ SingelId;
+            public const string GetCacheUserContact = Prefix + "GetCacheUserContact/"+ SingelId;
           
         }
         public static class Authentication
