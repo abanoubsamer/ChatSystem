@@ -35,7 +35,10 @@ namespace Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Chat
             if (context.Message.ChatType == ChatType.Group)
                 await _broadcast.SendMessageToGroupAsync(context.Message.CreatorId,context.Message.ChatId, new NewChatEvent
                 {
+                    Type = "NewChat",
                     ChatId = context.Message.ChatId,
+                    CreatedAt = context.Message.CreatedAt,
+                    CreatorId = context.Message.CreatorId,
                     MemebersIds = context.Message.MemebersIds,
                     ChatName = context.Message.ChatName,
                     AvatarUrl = context.Message.AvatarUrl,

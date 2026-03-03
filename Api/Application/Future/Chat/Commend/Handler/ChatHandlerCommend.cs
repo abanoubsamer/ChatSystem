@@ -53,6 +53,7 @@ namespace Application.Future.Chat.Commend.Handler
                 MemebersIds = result.Data.Item2.Select(x => x.UserId.ToString()).ToList(),
                 ChatId = result.Data.Item1.Id.ToString(),
                 ChatName = request.title,
+                CreatedAt = DateTime.UtcNow,
                 AvatarUrl = request.photoUrl,
                 ChatType = result.Data.Item1.Type,
                 CreatorId = request.creatorId

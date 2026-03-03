@@ -13,7 +13,9 @@ namespace Contracts.Chat.Command
     
         public string ChatName { get; set; }
         public string CreatorId { get; set; }
-       
+
+        public DateTime CreatedAt { get; set; }
+
         public ChatType ChatType { get; set; }
 
         public string? AvatarUrl { get; set; }

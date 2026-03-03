@@ -16,7 +16,7 @@ namespace Contracts.Message.Dtos
 
         public bool isRead { get; set; }
 
-        public DateTime SentAt { get; set; }
+        public DateTime? SentAt { get; set; }
 
     }
 }

@@ -24,134 +24,149 @@ namespace Infrastructure.Repositories.Implementation.ChatSnapshot
             _repo = repo;
 
         }
-        public async Task<PaginationResult<GetChatsSnapshotResponse>> GetUserChatSnapshots(string UserId, DateTime? lastSeenTime = null, int pageSize = 20)
+        public async Task<PaginationResult<GetChatsSnapshotResponse>> GetUserChatSnapshots(
+            string UserId,
+            DateTime? lastSeenTime = null,
+            int pageSize = 20)
         {
             pageSize = pageSize <= 0 ? 10 : pageSize;
+
             var cursorTime = lastSeenTime ?? DateTime.MaxValue;
             var isFirstSnapshot = lastSeenTime == null;
 
             try
             {
-                // 🔥 بناء شرط الـ $match ديناميكياً
+                // 🔥 Match أساسي على اليوزر فقط
                 var matchConditions = new BsonDocument
+        {
+            { "UserId", ObjectId.Parse(UserId) }
+        };
+
+                // 👇 نطبق شرط pagination فقط لو مش أول مرة
+                if (!isFirstSnapshot)
                 {
-                    { "UserId", ObjectId.Parse(UserId) }
-                };
+                    matchConditions.Add("UpdatedAt",
+                        new BsonDocument("$lt", cursorTime));
+                }
 
-                        if (isFirstSnapshot)
+                var pipeline = new List<BsonDocument>
+        {
+            new BsonDocument("$match", matchConditions),
+
+            // 🔥 Lookup على المستخدم الآخر
+            new BsonDocument("$lookup", new BsonDocument
+            {
+                { "from", "AppUser" },
+                { "let", new BsonDocument("otherUserId",
+                        new BsonDocument("$toObjectId", "$OtherUser")) },
+                { "pipeline", new BsonArray
+                    {
+                        new BsonDocument("$match", new BsonDocument
                         {
-                            // ✅ أول snapshot: نظهر كل الـ groups حتى لو فاضية
-                            matchConditions.Add("$or", new BsonArray
-                    {
-                        new BsonDocument("LastMessageTime", new BsonDocument("$exists", false)),
-                        new BsonDocument("LastMessageTime", BsonNull.Value),
-                        new BsonDocument("LastMessageTime", new BsonDocument("$ne", BsonNull.Value))
-                    });
-                        }
-                        else
+                            { "$expr",
+                                new BsonDocument("$eq",
+                                    new BsonArray { "$_id", "$$otherUserId" }) }
+                        }),
+                        new BsonDocument("$project", new BsonDocument
                         {
-                            // ✅ Pagination عادي: نجيب اللي أقدم من الـ cursor بس
-                            matchConditions.Add("LastMessageTime", new BsonDocument("$lt", cursorTime));
-                        }
+                            { "_id", 1 },
+                            { "UserName", 1 },
+                            { "AvatarUrl", 1 }
+                        })
+                    }
+                },
+                { "as", "OtherUserData" }
+            }),
 
-                        var pipeline = new List<BsonDocument>
-                {
-                    new BsonDocument("$match", matchConditions),
+            new BsonDocument("$unwind", new BsonDocument
+            {
+                { "path", "$OtherUserData" },
+                { "preserveNullAndEmptyArrays", true }
+            }),
 
-                    // 🔥 نعمل lookup على Users
-                    new BsonDocument("$lookup", new BsonDocument
+            // 🔥 تحديد الاسم والصورة حسب نوع الشات
+            new BsonDocument("$addFields", new BsonDocument
+            {
+                { "FinalName", new BsonDocument("$cond", new BsonArray
                     {
-                        { "from", "AppUser" },
-                        { "let", new BsonDocument("otherUserId", new BsonDocument("$toObjectId", "$OtherUser")) },
-                        { "pipeline", new BsonArray
-                            {
-                                new BsonDocument("$match", new BsonDocument
-                                {
-                                    { "$expr", new BsonDocument("$eq", new BsonArray { "$_id", "$$otherUserId" }) }
-                                }),
-                                new BsonDocument("$project", new BsonDocument
-                                {
-                                    { "_id", 1 },
-                                    { "UserName", 1 },
-                                    { "AvatarUrl", 1 }
-                                })
-                            }
-                        },
-                        { "as", "OtherUserData" }
-                    }),
-
-                    new BsonDocument("$unwind", new BsonDocument
+                        new BsonDocument("$eq",
+                            new BsonArray { "$ChatType", 0 }),
+                        "$OtherUserData.UserName",
+                        "$DisplayName"
+                    })
+                },
+                { "FinalProfileImage", new BsonDocument("$cond", new BsonArray
                     {
-                        { "path", "$OtherUserData" },
-                        { "preserveNullAndEmptyArrays", true }
-                    }),
+                        new BsonDocument("$eq",
+                            new BsonArray { "$ChatType", 0 }),
+                        "$OtherUserData.AvatarUrl",
+                        "$ProfileImage"
+                    })
+                }
+            }),
 
-                    // 🔥 نعدل الاسم والصورة لو Private
-                    new BsonDocument("$addFields", new BsonDocument
+            // 🔥 ترتيب حسب UpdatedAt
+            new BsonDocument("$sort",
+                new BsonDocument("UpdatedAt", -1)),
+
+            new BsonDocument("$project", new BsonDocument
+            {
+                { "_id", 0 },
+                { "name", "$FinalName" },
+                { "profileImage", "$FinalProfileImage" },
+                { "ChatId",
+                    new BsonDocument("$toString", "$ChatId") },
+                { "ChatType", 1 },
+                { "OtherUser", 1 },
+                { "StoryIsActive", 1 },
+                { "unreadMessagesCount", "$UnreadCount" },
+                { "UpdatedAt", 1 },
+                { "version", "$Version" },
+
+                // 👇 object اختياري لو فيه رسالة
+                { "lastMessage", new BsonDocument("$cond",
+                    new BsonArray
                     {
-                        { "FinalName", new BsonDocument("$cond", new BsonArray
-                            {
-                                new BsonDocument("$eq", new BsonArray { "$ChatType", 0 }),
-                                "$OtherUserData.UserName",
-                                "$DisplayName"
-                            })
-                        },
-                        { "FinalProfileImage", new BsonDocument("$cond", new BsonArray
-                            {
-                                new BsonDocument("$eq", new BsonArray { "$ChatType", 0 }),
-                                "$OtherUserData.AvatarUrl",
-                                "$ProfileImage"
-                            })
-                        }
-                    }),
+                        new BsonDocument("$ne",
+                            new BsonArray
+                            { "$LastMessageId", BsonNull.Value }),
 
-                    // 🔥 ترتيب ذكي: الـ groups الفاضية تكون في الآخر
-                    new BsonDocument("$sort", new BsonDocument
-                    {
-                        { "LastMessageTime", -1 } // الـ null هتروح الآخر في الـ descending sort
-                    }),
-
-                    new BsonDocument("$project", new BsonDocument
-                    {
-                        { "_id", 0 },
-                        { "name", "$FinalName" },
-                        { "profileImage", "$FinalProfileImage" },
-                        { "ChatId", new BsonDocument("$toString", "$ChatId") },
-                        { "ChatType", 1 },
-                        { "OtherUser", 1 },
-                        { "StoryIsActive", 1 },
-                        { "unreadMessagesCount", "$UnreadCount" },
-                        { "UpdatedAt", 1 },
-                        { "version", "$Version" },
-
-                        { "lastMessage", new BsonDocument("$cond", new BsonArray
-                            {
-                                // لو فيه رسائل نرجع الـ lastMessage، لو لا نرجع null
-                                new BsonDocument("$ne", new BsonArray { "$LastMessageId", BsonNull.Value }),
+                        new BsonDocument
+                        {
+                            { "MessageId", "$LastMessageId" },
+                            { "Text", "$LastMessageText" },
+                            { "SentAt", "$LastMessageTime" },
+                            { "isRead",
+                                new BsonDocument("$eq",
+                                    new BsonArray
+                                    { "$LastReadMessageId",
+                                      "$LastMessageId" }) },
+                            { "Sender",
                                 new BsonDocument
                                 {
-                                    { "MessageId", "$LastMessageId" },
-                                    { "Text", "$LastMessageText" },
-                                    { "SentAt", "$LastMessageTime" },
-                                    { "isRead", new BsonDocument("$eq", new BsonArray { "$LastReadMessageId", "$LastMessageId" }) },
-                                    { "Sender", new BsonDocument
-                                        {
-                                            { "UserId", "$LastMessageSenderId" },
-                                            { "UserName", "$LastMessageSenderName" }
-                                        }
-                                    }
-                                },
-                                BsonNull.Value
-                            })
-                        }
+                                    { "UserId",
+                                        "$LastMessageSenderId" },
+                                    { "UserName",
+                                        "$LastMessageSenderName" }
+                                }
+                            }
+                        },
+
+                        BsonNull.Value
                     })
-                };
+                }
+            })
+        };
 
-                var Chats = await _repo
-                       .AggregateWithRangebasedPaginationAsync<GetChatsSnapshotResponse>(pipeline,
-                        pageSize, C => C.lastMessage.SentAt);
+                // 👇 Pagination آمنة 100%
+                var chats = await _repo
+                    .AggregateWithRangebasedPaginationAsync<GetChatsSnapshotResponse>(
+                        pipeline,
+                        pageSize,
+                        C => C?.UpdatedAt ?? DateTime.MinValue
+                    );
 
-                return Chats;
+                return chats;
             }
             catch (Exception ex)
             {
@@ -160,7 +175,6 @@ namespace Infrastructure.Repositories.Implementation.ChatSnapshot
                 throw;
             }
         }
-
 
 
         public async Task<List<GetChatsSnapshotResponse>> SyncUserChatSnapshots(string UserId, DateTime LastSeenVersion)
