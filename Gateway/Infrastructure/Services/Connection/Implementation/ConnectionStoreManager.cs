@@ -21,6 +21,9 @@ namespace Infrastructure.Services.Connection.Implementation
 
         public IEnumerable<WebSocket> GetUserSockets(string userId)
         {
+            if (string.IsNullOrEmpty(userId)) 
+                yield break;
+
             if (_userSockets.TryGetValue(userId, out var connections))
             {
                 foreach (var kvp in connections)

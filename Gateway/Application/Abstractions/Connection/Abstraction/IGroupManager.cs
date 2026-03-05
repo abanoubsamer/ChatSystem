@@ -11,6 +11,7 @@
 
 
         public IEnumerable<string> GetUsersInGroup(string groupName);
+        public int GetGroupCount(string groupName);
 
         public void AddUserToGroup(string userId, string groupName);
         #endregion

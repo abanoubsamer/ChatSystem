@@ -11,17 +11,17 @@ namespace Domain.Models
         public ObjectId Id { get; set; } 
         public string ChatId { get; set; }
         public string SenderId { get; set; }
-
-        public string SenderName { get; set; }
+        public string? SessionId { get; set; }
+        public string? SenderName { get; set; }
 
         [BsonIgnoreIfNull]
         public string? ReplyToMessageId { get; set; }
        
         [BsonIgnoreIfNull]
         public string? ForwardedFromMessageId { get; set; }
-        public string Content { get; set; }
+        public string? Content { get; set; }
         public MessageType MessageType { get; set; } = MessageType.Text;
-        public string clientMessageId { get; set; }
+        public string? clientMessageId { get; set; }
         public DateTime SentAt { get; set; } = DateTime.UtcNow;
        
         [BsonIgnoreIfNull]
@@ -39,14 +39,6 @@ namespace Domain.Models
        
         [BsonIgnoreIfNull]
         public List<MessageReaction>? Reactions { get; set; }
-
-
-        // ─── Ack fields ───────────────────────────
-        public int TotalRecipients { get; set; }  // بتتحدد وقت الإرسال
-        public bool IsDelivered { get; set; }     // أول واحد استلم
-        public bool IsSeen { get; set; }          // أول واحد شاف
-        public int SeenCount { get; set; }        // عدد اللي شافوا
-
 
     }
 }

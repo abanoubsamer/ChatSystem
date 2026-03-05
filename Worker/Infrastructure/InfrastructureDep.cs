@@ -1,6 +1,7 @@
 ﻿using Application.Abstractions.Cache;
 using Application.Abstractions.Handler.Ack;
 using Application.Abstractions.Queue;
+using Application.Abstractions.Repositories.Call;
 using Application.Abstractions.Repositories.Chat;
 using Application.Abstractions.Repositories.ChatMember;
 using Application.Abstractions.Repositories.ChatSnapshot;
@@ -9,6 +10,7 @@ using Application.Abstractions.Repositories.Messages;
 using Application.Abstractions.Repositories.Outbox;
 using Application.Abstractions.Repositories.User;
 using Application.Abstractions.Services.Ack;
+using Application.Abstractions.Services.Call;
 using Application.Abstractions.Services.Chat;
 using Application.Abstractions.Services.Member;
 using Application.Abstractions.Services.Message;
@@ -18,6 +20,7 @@ using Application.Abstractions.Services.Watermark;
 using Application.Dtos.Ack;
 using Contracts.User.Query.Groups;
 using Infrastructure.Cache;
+using Infrastructure.ConsumerHandler.Call;
 using Infrastructure.ConsumerHandler.Chat;
 using Infrastructure.ConsumerHandler.Message.Commend;
 using Infrastructure.ConsumerHandler.Snapshot.Chat.Commend;
@@ -25,6 +28,7 @@ using Infrastructure.ConsumerHandler.User.Command;
 using Infrastructure.ConsumerHandler.User.Query;
 using Infrastructure.Handler.Ack;
 using Infrastructure.Repositories.GenaricRepo;
+using Infrastructure.Repositories.Implementation.Call;
 using Infrastructure.Repositories.Implementation.Chats;
 using Infrastructure.Repositories.Implementation.Chats.Infrastructure.Repositories.Implementation.Chats;
 using Infrastructure.Repositories.Implementation.ChatSnapshot;
@@ -35,6 +39,7 @@ using Infrastructure.Repositories.Implementation.RepoMessageReceipts;
 using Infrastructure.Repositories.Implementation.User;
 using Infrastructure.Services.Ack;
 using Infrastructure.Services.Background;
+using Infrastructure.Services.Call;
 using Infrastructure.Services.Chat;
 using Infrastructure.Services.Member;
 using Infrastructure.Services.Message;
@@ -85,6 +90,11 @@ namespace Infrastructure
                 cfg.AddConsumer<UpdateSnapDeliveryStatusConsumer>();
                 cfg.AddConsumer<UpdateSeenStatusConsumer>();
                 cfg.AddConsumer<NewChatConsumer>();
+                cfg.AddConsumer<SessionCreatedConsumer>();
+                cfg.AddConsumer<ParticipantJoinedConsumer>();
+                cfg.AddConsumer<ParticipantLeftConsumer>();
+                cfg.AddConsumer<MediaStateChangedConsumer>();
+                cfg.AddConsumer<CallEndedConsumer>();
                 // 2. Configure RabbitMQ
                 cfg.UsingRabbitMq((context, bus) =>
                 {
@@ -138,6 +148,24 @@ namespace Infrastructure
                     {
                         e.ConfigureConsumer<NewChatConsumer>(context);
                     });
+
+
+                    bus.ReceiveEndpoint("call-worker-queue", e =>
+                    {
+                        e.ConfigureConsumer<SessionCreatedConsumer>(context);
+                        e.ConfigureConsumer<ParticipantJoinedConsumer>(context);
+                        e.ConfigureConsumer<ParticipantLeftConsumer>(context);
+                        e.ConfigureConsumer<MediaStateChangedConsumer>(context);
+                        e.ConfigureConsumer<CallEndedConsumer>(context);
+
+                        e.UseMessageRetry(r =>
+                        {
+                            r.Interval(3, TimeSpan.FromSeconds(5));
+                        });
+
+                   
+                        e.BindDeadLetterQueue("call-worker-dlq");
+                    });
                 });
 
             });
@@ -161,7 +189,9 @@ namespace Infrastructure
             services.AddScoped<IUserCommandRepository, UserCommandRepository>();
             services.AddScoped<IMessageServices, MessageServices>();
             services.AddScoped<IMemeberServices, MemeberServices>();
+            services.AddScoped<ICallService, CallService>();
             services.AddScoped<IMessageReceiptsServices, MessageReceiptsServices>();
+            services.AddScoped<ICallSessionRepository, CallSessionRepository>();
             services.AddSingleton<IChatMemberCache, MemoryMemberCache>();
             services.AddScoped<IAckServices, AckServices>();
             services.AddScoped<IMessageReceiptsCommandRepository, MessageReceiptsCommandRepository>();

@@ -14,5 +14,7 @@ namespace Contracts.Enums
         Voice,
         Location,
         Contact,
+        CallVoice,
+        CallVideo
     }
 }

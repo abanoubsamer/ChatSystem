@@ -1,0 +1,13 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace Contracts.Call.Event
+{
+    public class CallEndedEvent: CallEvent
+    {
+        public string Reason { get; set; }
+    }
+}

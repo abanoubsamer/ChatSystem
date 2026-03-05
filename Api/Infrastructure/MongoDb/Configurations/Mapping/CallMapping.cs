@@ -12,9 +12,9 @@ namespace Infrastructure.MongoDb.Configurations.Mapping
     {
         public static void Register()
         {
-            if (BsonClassMap.IsClassMapRegistered(typeof(Call))) return;
+            if (BsonClassMap.IsClassMapRegistered(typeof(CallSession))) return;
 
-            BsonClassMap.RegisterClassMap<Call>(cm =>
+            BsonClassMap.RegisterClassMap<CallSession>(cm =>
             {
                 cm.AutoMap();
                 cm.MapIdMember(c => c.Id);

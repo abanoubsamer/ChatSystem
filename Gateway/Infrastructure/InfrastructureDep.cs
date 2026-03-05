@@ -1,6 +1,8 @@
 ﻿
+using Application.Abstractions.Auth;
 using Application.Abstractions.Broadcast;
 using Application.Abstractions.Broadcast.Abstraction;
+using Application.Abstractions.CallSessionStore;
 using Application.Abstractions.Connection;
 using Application.Abstractions.Connection.Abstraction;
 using Application.Abstractions.Handler.GatewayWebSocket.Ingress;
@@ -9,6 +11,7 @@ using Application.Abstractions.Publisher;
 using Application.Abstractions.Queue;
 using Application.Abstractions.Repositories.Chat;
 using Application.Abstractions.Session;
+using Application.Handlers.Call;
 using Application.Handlers.Heartbeat;
 using Application.Handlers.Message;
 using Application.Handlers.Snapshots;
@@ -23,6 +26,7 @@ using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Message;
 using Infrastructure.Handler.WebSocketHandler.Ingress;
 using Infrastructure.Repositories.GenaricRepo;
 using Infrastructure.Repositories.Implementation.Chats;
+using Infrastructure.Services.Auth;
 using Infrastructure.Services.Background;
 using Infrastructure.Services.Broadcast;
 using Infrastructure.Services.Broadcast.Implementation;
@@ -34,6 +38,7 @@ using Infrastructure.Services.Session;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Session;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
@@ -165,7 +170,8 @@ namespace Infrastructure
         {
             // Caching
             services.AddMemoryCache();
-           
+            services.AddHttpContextAccessor();
+            services.AddScoped<IAuthServices, AuthServices>();
 
             // Generic Repositories and Queue Services
             services.AddScoped(typeof(IGenaricRepository<>), typeof(GenaricRepository<>));
@@ -178,7 +184,7 @@ namespace Infrastructure
             services.AddTransient<IChatQueriesRepository, ChatQueriesRepository>();
             // Session Services
             services.AddTransient<ISessionServices, SessionServices>();
-
+            services.AddSingleton<ICallSessionStore, InMemorySessionStore>();
             // Connection and Broadcast Managers
             services.AddSingleton<IConnectionStoreManager, ConnectionStoreManager>();
             services.AddSingleton<IFanOutResolverManager, FanOutResolverManager>();
@@ -191,9 +197,10 @@ namespace Infrastructure
 
             // Gateway Ingress Handlers
             services.AddScoped<IGatewayIngressHandler, GatewayIngressHandler>();
-
+            services.AddSingleton<IRingTimeoutService, RingTimeoutService>();
 
             // Method Handlers
+
             services.AddScoped<IMethodHandler, NewMessageMethodHandler>();
             services.AddScoped<IMethodHandler, HeartbeatMethodHandler>();
             services.AddScoped<IMethodHandler, MessageReceivedAckMethodHandler>();
@@ -203,6 +210,14 @@ namespace Infrastructure
             services.AddScoped<IMethodHandler, UserStateMethodHndler>();
             services.AddScoped<IMethodHandler, GroupStateMethodHndler>();
             services.AddScoped<IMethodHandler, ReceivedAckBatchMethodHandler>();
+            services.AddScoped<IMethodHandler, OfferMethodHandler>();
+            services.AddScoped<IMethodHandler, AnswerMethodHandler>();
+            services.AddScoped<IMethodHandler, IceCandidateMethodHandler>();
+            services.AddScoped<IMethodHandler, JoinCallMethodHandler>();
+            services.AddScoped<IMethodHandler, GroupSignalMethodHandler>();
+            services.AddScoped<IMethodHandler, LeaveCallHandler>();
+            services.AddScoped<IMethodHandler, MediaStateHandler>();
+            services.AddScoped<IMethodHandler, CreateGroupCallHandler>();
 
 
             // Background Services

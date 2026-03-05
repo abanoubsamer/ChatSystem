@@ -19,6 +19,13 @@ namespace Infrastructure.Services.Connection.Implementation
             group.TryAdd(userId, 0);
         }
 
+        public int GetGroupCount(string groupName)
+        {
+            if (groups.TryGetValue(groupName, out var users))
+                return users.Count;
+            return 0;
+        }
+
         public IEnumerable<string> GetUsersInGroup(string groupName)
         {
             if (groups.TryGetValue(groupName, out var group))

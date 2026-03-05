@@ -38,62 +38,128 @@ namespace Infrastructure.Handler.WebSocketHandler.Ingress
         {
             await _sessionServices.OnUserConnectedAsync(userId, socket);
             await _presenceService.OnConnectedAsync(userId, ct);
+
             _logger.LogInformation("Connection With User ID : {UserId}", userId);
-            var buffer = new byte[4096];
+
+            const int BufferSize = 4096;
+            const int MaxMessageSize = 64 * 1024; // 64 KB
+
+            var buffer = new byte[BufferSize];
+
             try
             {
                 while (!ct.IsCancellationRequested &&
                        socket.State == WebSocketState.Open)
                 {
+                    using var ms = new MemoryStream();
                     WebSocketReceiveResult result;
 
-                    try
+                    do
                     {
-                        result = await socket.ReceiveAsync(
-                            new ArraySegment<byte>(buffer),
-                            ct
-                        );
-                    }
-                    catch (WebSocketException ex) when (
-                        ex.WebSocketErrorCode ==
-                        WebSocketError.ConnectionClosedPrematurely
-                    )
-                    {
-                        break;
-                    }
+                        try
+                        {
+                            result = await socket.ReceiveAsync(
+                                new ArraySegment<byte>(buffer),
+                                ct
+                            );
+                        }
+                        catch (WebSocketException ex) when (
+                            ex.WebSocketErrorCode ==
+                            WebSocketError.ConnectionClosedPrematurely
+                        )
+                        {
+                            _logger.LogWarning(
+                                "Connection closed prematurely for User ID : {UserId}",
+                                userId
+                            );
+                            return;
+                        }
 
-                    if (result.MessageType == WebSocketMessageType.Close)
-                    {
-                        break;
-                    }
+                        if (result.MessageType == WebSocketMessageType.Close)
+                        {
+                            _logger.LogInformation(
+                                "Close frame received from User ID : {UserId}",
+                                userId
+                            );
+                            return;
+                        }
 
-                    var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                        ms.Write(buffer, 0, result.Count);
+
+                        if (ms.Length > MaxMessageSize)
+                        {
+                            _logger.LogWarning(
+                                "Message too large from User ID : {UserId}",
+                                userId
+                            );
+
+                            await socket.CloseAsync(
+                                WebSocketCloseStatus.MessageTooBig,
+                                "Message too large",
+                                CancellationToken.None
+                            );
+
+                            return;
+                        }
+
+                    } while (!result.EndOfMessage);
+
+                    var message = Encoding.UTF8.GetString(ms.ToArray());
 
                     MessageInvokeDto? msgObj;
+
                     try
                     {
                         msgObj = JsonSerializer.Deserialize<MessageInvokeDto>(message);
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        _logger.LogWarning("Invalid message format received from User ID : {UserId}", userId);
+                        _logger.LogWarning(
+                            ex,
+                            "Invalid message format received from User ID : {UserId}",
+                            userId
+                        );
+                        continue;
+                    }
+                    if (msgObj == null || string.IsNullOrWhiteSpace(msgObj.Method))
+                    {
+                        _logger.LogWarning(
+                            "Invalid message content from User ID : {UserId}",
+                            userId
+                        );
                         continue;
                     }
 
-                    if (msgObj != null && !string.IsNullOrWhiteSpace(msgObj.Method))
-                    {
-                        using var scope = _scopeFactory.CreateScope();
-                        var handlers = scope.ServiceProvider.GetRequiredService<IEnumerable<IMethodHandler>>();
-                        var handler = handlers.FirstOrDefault(h => h.MethodName == msgObj.Method);
+                    using var scope = _scopeFactory.CreateScope();
 
-                        if (handler != null)
-                        {
-                            await handler.Handle(userId, msgObj.Params, socket);
-                        }
-                        else
-                        {
-                            _logger.LogWarning("Unknown method: {Method} received from User ID : {UserId}", msgObj.Method, userId);
-                        }
+                    var handlers = scope.ServiceProvider
+                        .GetRequiredService<IEnumerable<IMethodHandler>>();
+
+                    var handler = handlers
+                        .FirstOrDefault(h => h.MethodName == msgObj.Method);
+
+                    if (handler == null)
+                    {
+                        _logger.LogWarning(
+                            "Unknown method: {Method} received from User ID : {UserId}",
+                            msgObj.Method,
+                            userId
+                        );
+                        continue;
+                    }
+
+                    try
+                    {
+                        await handler.Handle(userId, msgObj.Params, socket);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(
+                            ex,
+                            "Handler error for method {Method} from User ID : {UserId}",
+                            msgObj.Method,
+                            userId
+                        );
                     }
                 }
             }
@@ -102,14 +168,22 @@ namespace Infrastructure.Handler.WebSocketHandler.Ingress
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected WS error for User ID : {UserId}", userId);
+                _logger.LogError(
+                    ex,
+                    "Unexpected WS error for User ID : {UserId}",
+                    userId
+                );
             }
             finally
             {
                 await _sessionServices.OnUserDisconnectedAsync(userId, socket);
                 await _presenceService.OnDisconnectedAsync(userId, ct);
 
-                _logger.LogInformation("close WS Connection with ID: {UserId}", userId);
+                _logger.LogInformation(
+                    "close WS Connection with ID: {UserId}",
+                    userId
+                );
+
                 try
                 {
                     if (socket.State == WebSocketState.Open ||

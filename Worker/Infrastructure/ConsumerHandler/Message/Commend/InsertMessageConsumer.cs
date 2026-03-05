@@ -53,10 +53,11 @@ namespace Worker.Consumers
                 MessageId = newMessage.Id.ToString(),
                 ChatId = newMessage.ChatId,
                 SenderId = newMessage.SenderId,
+                SessionId = newMessage.SessionId,
                 Content = newMessage.Content,
                 MessageType = newMessage.MessageType,
                 SentAt = newMessage.SentAt,
-                ClientMessageId = newMessage.clientMessageId
+                ClientMessageId = newMessage?.clientMessageId
             };
 
             await _eventBus.PublishAsync(createdEvent);
@@ -76,6 +77,7 @@ namespace Worker.Consumers
                 ForwardedFromMessageId = command.ForwardedFromMessage,
                 ReplyToMessageId = command.ReplyToMessage,
                 SenderName = command.SenderName,
+                SessionId =command.SessionId,
                 MessageType = command.MessageType,
                 ChatId = command.ChatId,
                 Attachments = command.AttachmentsDto?.Select(a => new MessageAttachment

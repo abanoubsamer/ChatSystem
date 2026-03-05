@@ -18,6 +18,7 @@ namespace Application.Future.Messages.Querey.Response
         public string? ReplyToMessageId { get; set; }
         public string? ForwardedFromMessageId { get; set; }
 
+        public MessageType MessageType { get; set; }
         public string Content { get; set; }
         public DateTime SentAt { get; set; }
         public DateTime? EditedAt { get; set; }

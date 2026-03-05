@@ -18,6 +18,9 @@
 
             public void AddUserToGroup(string userId, string groupName) => _groupManager.AddUserToGroup(userId, groupName);
 
+            public int GetGroupCount(string groupName) => _groupManager.GetGroupCount(groupName);
+     
+
             public IEnumerable<string> GetUsersInGroup(string groupName) => _groupManager.GetUsersInGroup(groupName);
 
             public IEnumerable<WebSocket> GetUserSockets(string userId) => _storeManager.GetUserSockets(userId);
@@ -35,7 +38,12 @@
        
                 => _storeManager.RemoveConnection(userId, socket);
 
-            public void RemoveUserFromGroup(string userId, string groupName) => _groupManager.RemoveUserFromGroup(userId, groupName);
+            public void RemoveGroup(string groupName)
+      
+                   => _groupManager.RemoveUserFromAllGroups(groupName);
+            
+       
+        public void RemoveUserFromGroup(string userId, string groupName) => _groupManager.RemoveUserFromGroup(userId, groupName);
 
         }
     }

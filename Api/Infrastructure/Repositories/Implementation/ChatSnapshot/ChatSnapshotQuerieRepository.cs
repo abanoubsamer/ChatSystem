@@ -29,7 +29,7 @@ namespace Infrastructure.Repositories.Implementation.ChatSnapshot
             DateTime? lastSeenTime = null,
             int pageSize = 20)
         {
-            pageSize = pageSize <= 0 ? 10 : pageSize;
+            pageSize = pageSize <= 0 ? 50 : pageSize;
 
             var cursorTime = lastSeenTime ?? DateTime.MaxValue;
             var isFirstSnapshot = lastSeenTime == null;
@@ -42,11 +42,21 @@ namespace Infrastructure.Repositories.Implementation.ChatSnapshot
             { "UserId", ObjectId.Parse(UserId) }
         };
 
-                // 👇 نطبق شرط pagination فقط لو مش أول مرة
+                // 👇 Pagination بس لو مش أول مرة، بس على Private chats
                 if (!isFirstSnapshot)
                 {
-                    matchConditions.Add("UpdatedAt",
-                        new BsonDocument("$lt", cursorTime));
+                    matchConditions.Add("$or", new BsonArray
+            {
+                // 1 => Group chat, نمر بدون شرط UpdatedAt
+                new BsonDocument("ChatType", 1),
+
+                // 0 => Private chat, نطبق شرط pagination
+                new BsonDocument
+                {
+                    { "ChatType", 0 },
+                    { "UpdatedAt", new BsonDocument("$lt", cursorTime) }
+                }
+            });
                 }
 
                 var pipeline = new List<BsonDocument>
@@ -114,8 +124,7 @@ namespace Infrastructure.Repositories.Implementation.ChatSnapshot
                 { "_id", 0 },
                 { "name", "$FinalName" },
                 { "profileImage", "$FinalProfileImage" },
-                { "ChatId",
-                    new BsonDocument("$toString", "$ChatId") },
+                { "ChatId", new BsonDocument("$toString", "$ChatId") },
                 { "ChatType", 1 },
                 { "OtherUser", 1 },
                 { "StoryIsActive", 1 },
@@ -128,8 +137,7 @@ namespace Infrastructure.Repositories.Implementation.ChatSnapshot
                     new BsonArray
                     {
                         new BsonDocument("$ne",
-                            new BsonArray
-                            { "$LastMessageId", BsonNull.Value }),
+                            new BsonArray { "$LastMessageId", BsonNull.Value }),
 
                         new BsonDocument
                         {
@@ -139,15 +147,12 @@ namespace Infrastructure.Repositories.Implementation.ChatSnapshot
                             { "isRead",
                                 new BsonDocument("$eq",
                                     new BsonArray
-                                    { "$LastReadMessageId",
-                                      "$LastMessageId" }) },
+                                    { "$LastReadMessageId", "$LastMessageId" }) },
                             { "Sender",
                                 new BsonDocument
                                 {
-                                    { "UserId",
-                                        "$LastMessageSenderId" },
-                                    { "UserName",
-                                        "$LastMessageSenderName" }
+                                    { "UserId", "$LastMessageSenderId" },
+                                    { "UserName", "$LastMessageSenderName" }
                                 }
                             }
                         },

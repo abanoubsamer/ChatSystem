@@ -65,6 +65,7 @@ namespace Infrastructure.Repositories.Implementation.Messages
                         { "aggregate", 1 },
                         { "ReplyToMessageId", 1 },
                         { "ForwardedFromMessageId", 1 },
+                        { "MessageType", 1 },
                         { "SentAt", 1 },
                         { "EditedAt", 1 },
                         { "IsPinned", 1 },

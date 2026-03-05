@@ -342,15 +342,7 @@ namespace Infrastructure.Repositories.Implementation.Messages
 
         public async Task IncrementSeenCountAsync(ObjectId chatId, ObjectId fromMsgId, ObjectId toMsgId, CancellationToken ct = default)
         {
-            var filter = Builders<Message>.Filter.And(
-                Builders<Message>.Filter.Eq(m => m.ChatId, chatId.ToString()),
-                Builders<Message>.Filter.Gt(m => m.Id, fromMsgId),
-                Builders<Message>.Filter.Lte(m => m.Id, toMsgId)
-            );
-
-            var update = Builders<Message>.Update.Inc(m => m.SeenCount, 1);
-
-            await _repository.GetMongoCollection().UpdateManyAsync(filter, update, cancellationToken: ct);
+           
         }
     }
 }
