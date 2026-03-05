@@ -14,6 +14,7 @@ using Application.Handlers.Message;
 using Application.Handlers.Snapshots;
 using Application.Handlers.State;
 using Application.Handlers.Sync;
+using Application.Handlers.Call;
 using Contracts.Message.Commend;
 using Contracts.Message.Events;
 using Infrastructure.Extension;
@@ -203,6 +204,11 @@ namespace Infrastructure
             services.AddScoped<IMethodHandler, UserStateMethodHndler>();
             services.AddScoped<IMethodHandler, GroupStateMethodHndler>();
             services.AddScoped<IMethodHandler, ReceivedAckBatchMethodHandler>();
+            services.AddScoped<IMethodHandler, OfferMethodHandler>();
+            services.AddScoped<IMethodHandler, AnswerMethodHandler>();
+            services.AddScoped<IMethodHandler, IceCandidateMethodHandler>();
+            services.AddScoped<IMethodHandler, JoinGroupMethodHandler>();
+            services.AddScoped<IMethodHandler, GroupSignalMethodHandler>();
 
 
             // Background Services
