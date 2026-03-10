@@ -177,7 +177,7 @@ The system uses an **Event-Driven Architecture** with several patterns to ensure
 
 ---
 
-## 10. Production Readiness & Future Improvements
+## 9. Production Readiness & Future Improvements
 
 ### Strengths:
 - Robust event-driven core.
