@@ -176,33 +176,49 @@ The system uses an **Event-Driven Architecture** with several patterns to ensure
 ## 9. System Architecture Diagram (Mermaid)
 
 ```mermaid
-architecture-beta
-    group api(cloud)[API Layer]
-    group gateway(cloud)[Real-time Layer]
-    group logic(server)[Logic Layer]
-    group data(database)[Data Layer]
+flowchart TB
+    subgraph api["☁️ API Layer"]
+        client[("👤 User Client")]
+        api_svc[("🔌 API Service")]
+    end
 
-    service client(users)[User Client] in api
-    service api_svc(server)[API Service] in api
-    service gateway_svc(server)[Gateway Service] in gateway
-    service worker(server)[Worker Service] in logic
-    service orleans(disk)[Orleans Silo] in logic
-    service bp_worker(server)[Broadcast Prep] in logic
-    service rabbitmq(queue)[RabbitMQ] in logic
-    service mongodb(database)[MongoDB] in data
+    subgraph gateway["⚡ Real-time Layer"]
+        gateway_svc[("🌐 Gateway Service")]
+    end
 
-    client:T -- T: api_svc
-    client:B -- B: gateway_svc
-    api_svc:R -- L: rabbitmq
-    gateway_svc:R -- L: rabbitmq
-    rabbitmq:R -- L: worker
-    rabbitmq:B -- T: bp_worker
-    worker:R -- L: orleans
-    worker:B -- T: mongodb
-    bp_worker:R -- L: mongodb
-    bp_worker:T -- B: rabbitmq
-    rabbitmq:T -- B: gateway_svc
-    gateway_svc:L -- R: client
+    subgraph logic["⚙️ Logic Layer"]
+        worker[("🔧 Worker Service")]
+        orleans[("🎯 Orleans Silo")]
+        bp_worker[("📡 Broadcast Prep")]
+        rabbitmq[("🐰 RabbitMQ")]
+    end
+
+    subgraph data["🗄️ Data Layer"]
+        mongodb[("🍃 MongoDB")]
+    end
+
+    client -->|REST API| api_svc
+    client -->|WebSocket| gateway_svc
+    
+    api_svc -->|Publish| rabbitmq
+    gateway_svc -->|Publish| rabbitmq
+    
+    rabbitmq -->|Consume| worker
+    rabbitmq -->|Consume| bp_worker
+    
+    worker -->|Grain Calls| orleans
+    worker -->|Read/Write| mongodb
+    
+    bp_worker -->|Read/Write| mongodb
+    bp_worker -->|Publish| rabbitmq
+    
+    rabbitmq -->|Broadcast| gateway_svc
+    gateway_svc -->|Push| client
+
+    style api fill:#e1f5fe
+    style gateway fill:#fff3e0
+    style logic fill:#e8f5e9
+    style data fill:#fce4ec
 ```
 
 ---
