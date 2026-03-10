@@ -1,6 +1,8 @@
 using Application.Abstractions.Repositories.GenaricRepo;
+using Application.Abstractions.Services.Publisher;
 using Application.Abstractions.Services.Security;
 using Application.Future.User.Command.Models;
+using Contracts.User.Events;
 using Core.Basic;
 using Domain.Models;
 using MediatR;
@@ -17,11 +19,13 @@ namespace Application.Future.User.Command.Handlers
     {
         private readonly IGenaricRepository<AppUser> _userRepo;
         private readonly ISecurityServices _security;
+        private readonly IMessagePublisher _publisher;
 
-        public UserUpdateHandler(IGenaricRepository<AppUser> userRepo, ISecurityServices security)
+        public UserUpdateHandler(IGenaricRepository<AppUser> userRepo, ISecurityServices security, IMessagePublisher publisher)
         {
             _userRepo = userRepo;
             _security = security;
+            _publisher = publisher;
         }
 
         public async Task<Response<string>> Handle(UpdateUsernameModel request, CancellationToken cancellationToken)
@@ -36,8 +40,22 @@ namespace Application.Future.User.Command.Handlers
             var exists = await _userRepo.AnyAsync(u => u.UserName == normalizedUsername && u.Id != ObjectId.Parse(request.UserId));
             if (exists) return UnprocessableEntity<string>("Username already exists.");
 
+
+            await _publisher.PublishAsync(new UserProfileUpdatedEvent
+            {
+                UserId = request.UserId,
+                NewUsername = normalizedUsername
+            });
+
+    
             var update = Builders<AppUser>.Update.Set(u => u.UserName, normalizedUsername);
-            return await UpdateUserFieldAsync(ObjectId.Parse(request.UserId), update);
+            var result = await UpdateUserFieldAsync(ObjectId.Parse(request.UserId), update);
+            if(result.Result) await _publisher.PublishAsync(new UserProfileUpdatedEvent
+            {
+                UserId = request.UserId,
+                NewUsername = normalizedUsername
+            });
+            return result.Item1;
         }
 
         public async Task<Response<string>> Handle(UpdateBioModel request, CancellationToken cancellationToken)
@@ -47,7 +65,8 @@ namespace Application.Future.User.Command.Handlers
 
             // Bio
             var update = Builders<AppUser>.Update.Set(u => u.Bio, request.NewBio);
-            return await UpdateUserFieldAsync(ObjectId.Parse(request.UserId), update);
+            var result = await UpdateUserFieldAsync(ObjectId.Parse(request.UserId), update);
+            return result.Item1;
         }
 
         public async Task<Response<string>> Handle(UpdatePasswordModel request, CancellationToken cancellationToken)
@@ -66,25 +85,37 @@ namespace Application.Future.User.Command.Handlers
             // Hash and update
             var newHash = _security.HashPassword(request.NewPassword);
             var update = Builders<AppUser>.Update.Set(u => u.PasswordHash, newHash);
-            return await UpdateUserFieldAsync(user.Id, update);
-
+            var result = await UpdateUserFieldAsync(user.Id, update);
+            return result.Item1;
         }
 
         public async Task<Response<string>> Handle(UpdateAvatarModel request, CancellationToken cancellationToken)
         {
+          
+
+           
+
             var update = Builders<AppUser>.Update.Set(u => u.AvatarUrl, request.NewAvatarUrl);
-            return await UpdateUserFieldAsync(ObjectId.Parse(request.UserId), update);
+            var result =  await UpdateUserFieldAsync(ObjectId.Parse(request.UserId), update);
+
+            if(result.Result) await _publisher.PublishAsync(new UserProfileUpdatedEvent
+            {
+                UserId = request.UserId,
+                NewAvatarUrl = request.NewAvatarUrl
+            });
+
+            return result.Item1;
         }
 
 
-        private async Task<Response<string>> UpdateUserFieldAsync(ObjectId userId, UpdateDefinition<AppUser> update)
+        private async Task<(Response<string>,bool Result)> UpdateUserFieldAsync(ObjectId userId, UpdateDefinition<AppUser> update)
         {
             var filter = Builders<AppUser>.Filter.Eq(u => u.Id, userId);
             var finalUpdate = update.Set(u => u.UpdateTime, DateTime.UtcNow);
 
             var result = await _userRepo.GetMongoCollection().UpdateOneAsync(filter, finalUpdate);
-            if (result.MatchedCount == 0) return NotFound<string>("User not found.");
-            return Success("Update successful.");
+            if (result.MatchedCount == 0) return (NotFound<string>("User not found."),false);
+            return (Success("Update successful."),true);
         }
     }
 }

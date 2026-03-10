@@ -28,7 +28,6 @@ namespace Domain.Models
         public long LastVersions { get; set; } 
 
         public List<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
-        public  List<UserContact> Contacts { get; set; }
 
     }
 }
