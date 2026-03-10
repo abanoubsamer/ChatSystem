@@ -5,6 +5,7 @@ using Core.Basic;
 using Domain.Models;
 using MediatR;
 using MongoDB.Bson;
+using MongoDB.Driver;
 
 namespace Application.Future.User.Command.Handlers
 {
@@ -37,11 +38,7 @@ namespace Application.Future.User.Command.Handlers
 
             await _userRepo.UpdateAsync(
                 u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.UserName, normalizedUsername)
-            );
-            await _userRepo.UpdateAsync(
-                u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.UpdateTime, DateTime.UtcNow)
+                update => update.Set(x => x.UserName, normalizedUsername).Set(x => x.UpdateTime, DateTime.UtcNow)
             );
 
             return Success("Username updated successfully.");
@@ -54,11 +51,7 @@ namespace Application.Future.User.Command.Handlers
 
             await _userRepo.UpdateAsync(
                 u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.Bio, request.NewBio)
-            );
-            await _userRepo.UpdateAsync(
-                u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.UpdateTime, DateTime.UtcNow)
+                update => update.Set(x => x.Bio, request.NewBio).Set(x => x.UpdateTime, DateTime.UtcNow)
             );
 
             return Success("Bio updated successfully.");
@@ -81,11 +74,7 @@ namespace Application.Future.User.Command.Handlers
             var newHash = _security.HashPassword(request.NewPassword);
             await _userRepo.UpdateAsync(
                 u => u.Id == user.Id,
-                update => update.Set(x => x.PasswordHash, newHash)
-            );
-            await _userRepo.UpdateAsync(
-                u => u.Id == user.Id,
-                update => update.Set(x => x.UpdateTime, DateTime.UtcNow)
+                update => update.Set(x => x.PasswordHash, newHash).Set(x => x.UpdateTime, DateTime.UtcNow)
             );
 
             return Success("Password updated successfully.");
@@ -93,23 +82,9 @@ namespace Application.Future.User.Command.Handlers
 
         public async Task<Response<string>> Handle(UpdateAvatarModel request, CancellationToken cancellationToken)
         {
-            var user = await _userRepo.FindOneAsync(u => u.Id == ObjectId.Parse(request.UserId));
-            if (user != null && !string.IsNullOrEmpty(user.AvatarUrl))
-            {
-                var oldPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", user.AvatarUrl.TrimStart('/'));
-                if (System.IO.File.Exists(oldPath))
-                {
-                    try { System.IO.File.Delete(oldPath); } catch { }
-                }
-            }
-
             await _userRepo.UpdateAsync(
                 u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.AvatarUrl, request.NewAvatarUrl)
-            );
-            await _userRepo.UpdateAsync(
-                u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.UpdateTime, DateTime.UtcNow)
+                update => update.Set(x => x.AvatarUrl, request.NewAvatarUrl).Set(x => x.UpdateTime, DateTime.UtcNow)
             );
 
             return Success("Avatar updated successfully.");

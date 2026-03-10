@@ -61,45 +61,19 @@ namespace Api.Controllers
         }
 
         [HttpPatch(Routing.User.UpdateAvatar)]
-        public async Task<IActionResult> UpdateAvatar(IFormFile avatar)
+        public async Task<IActionResult> UpdateAvatar([FromBody] UpdateAvatarRequest request)
         {
-            if (avatar == null || avatar.Length == 0)
-                return BadRequest("No file uploaded.");
-
-            // Basic validation
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
-            var extension = Path.GetExtension(avatar.FileName).ToLower();
-            if (!allowedExtensions.Contains(extension))
-                return BadRequest("Invalid file type.");
-
-            if (avatar.Length > 5 * 1024 * 1024)
-                return BadRequest("File size exceeds 5MB.");
-
-            // Local storage logic
-            var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "avatars");
-            if (!Directory.Exists(uploadsFolder))
-                Directory.CreateDirectory(uploadsFolder);
-
-            var fileName = $"{Guid.NewGuid()}{extension}";
-            var filePath = Path.Combine(uploadsFolder, fileName);
-
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await avatar.CopyToAsync(stream);
-            }
-
-            var avatarUrl = $"/uploads/avatars/{fileName}";
-
             return NewResult(await _Mediator.Send(new UpdateAvatarModel
             {
                 UserId = GetToken().UserId,
-                NewAvatarUrl = avatarUrl
+                NewAvatarUrl = request.AvatarUrl
             }));
         }
     }
 
     public class UpdateUsernameRequest { public string Username { get; set; } }
     public class UpdateBioRequest { public string Bio { get; set; } }
+    public class UpdateAvatarRequest { public string AvatarUrl { get; set; } }
     public class UpdatePasswordRequest
     {
         public string CurrentPassword { get; set; }

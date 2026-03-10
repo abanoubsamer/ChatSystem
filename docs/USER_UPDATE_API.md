@@ -58,25 +58,31 @@ All endpoints require a valid JWT token.
 ### 1.4 Update Profile Picture
 - **Endpoint**: `PATCH /api/v1/user/update-avatar`
 - **Method**: `PATCH`
-- **Purpose**: Uploads a new profile picture.
-- **Content-Type**: `multipart/form-data`
-- **Request Parameters**:
-    - `avatar`: File (Image)
+- **Purpose**: Updates the user's profile picture URL.
+- **Request Body (JSON)**:
+  ```json
+  {
+    "avatarUrl": "https://cloud-storage.com/path/to/image.png"
+  }
+  ```
 - **Validation Rules**:
-    - Allowed formats: `.jpg`, `.jpeg`, `.png`, `.webp`.
-    - Maximum file size: 5MB.
+    - Must be a valid URL.
 
 ---
 
 ## 2. Image Handling Strategy
 
-### Storage Approach: Local Server Storage
-For this implementation, images will be stored on the local file system of the API server.
+### Storage Approach: Cloud Storage (Frontend Managed)
+The frontend application is responsible for uploading image files to a cloud storage provider (e.g., AWS S3, Cloudinary, Azure Blob).
 
-1.  **Directory**: `wwwroot/uploads/avatars/`.
-2.  **File Naming**: Files will be renamed using a `Guid` to prevent collisions (e.g., `a7b8c9...png`).
-3.  **Database Strategy**: Only the relative URL (e.g., `/uploads/avatars/guid.png`) will be stored in the `AvatarUrl` field of the `AppUser` document.
-4.  **Cleanup**: When a user updates their avatar, the old file should be deleted from the server to save space.
+1.  **Frontend Flow**:
+    - Frontend captures the image.
+    - Frontend uploads the image directly to the cloud.
+    - Cloud provider returns a permanent URL.
+2.  **Backend Flow**:
+    - Backend receives the URL via the `update-avatar` endpoint.
+    - Backend persists the URL in the `AvatarUrl` field of the `AppUser` document.
+3.  **Benefits**: Reduces backend load, simplifies scalability, and leverages specialized media processing features of cloud providers.
 
 ---
 
