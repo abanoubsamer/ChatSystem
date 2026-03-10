@@ -157,33 +157,27 @@ architecture-beta
     group logic(server)[Logic Layer]
     group data(database)[Data Layer]
 
-    service user_app(client)[User Client] in api
-    service api_svc(server)[Api Service] in api
-    service gateway_svc(server)[Gateway] in gateway
-
+    service client(users)[User Client] in api
+    service api_svc(server)[API Service] in api
+    service gateway_svc(server)[Gateway Service] in gateway
     service worker(server)[Worker Service] in logic
-    service orleans(server)[Orleans Silo] in logic
+    service orleans(disk)[Orleans Silo] in logic
     service bp_worker(server)[Broadcast Prep] in logic
-
-    service rabbitmq(messaging)[RabbitMQ] in logic
-
+    service rabbitmq(queue)[RabbitMQ] in logic
     service mongodb(database)[MongoDB] in data
 
-    user_app -- HTTP --> api_svc
-    user_app -- WS --> gateway_svc
-
-    api_svc -- Events --> rabbitmq
-    gateway_svc -- Events --> rabbitmq
-
-    rabbitmq -- Consume --> worker
-    rabbitmq -- Consume --> bp_worker
-
-    worker -- State --> orleans
-    worker -- Persist --> mongodb
-    bp_worker -- Query --> mongodb
-
-    bp_worker -- Broadcast --> rabbitmq
-    rabbitmq -- Push --> gateway_svc
+    client:T -- T--> api_svc
+    client:B -- B--> gateway_svc
+    api_svc:R -- L--> rabbitmq
+    gateway_svc:R -- L--> rabbitmq
+    rabbitmq:R -- L--> worker
+    rabbitmq:B -- T--> bp_worker
+    worker:R -- L--> orleans
+    worker:B -- T--> mongodb
+    bp_worker:R -- L--> mongodb
+    bp_worker:T -- B--> rabbitmq
+    rabbitmq:T -- B--> gateway_svc
+    gateway_svc:L -- R--> client
 ```
 
 ---
