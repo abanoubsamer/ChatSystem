@@ -7,6 +7,7 @@ using Core.Basic;
 using Domain.Models;
 using MediatR;
 using MongoDB.Bson;
+using MongoDB.Driver;
 
 namespace Application.Future.User.Command.Handlers
 {
@@ -39,14 +40,6 @@ namespace Application.Future.User.Command.Handlers
             var exists = await _userRepo.AnyAsync(u => u.UserName == normalizedUsername && u.Id != ObjectId.Parse(request.UserId));
             if (exists) return UnprocessableEntity<string>("Username already exists.");
 
-            await _userRepo.UpdateAsync(
-                u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.UserName, normalizedUsername)
-            );
-            await _userRepo.UpdateAsync(
-                u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.UpdateTime, DateTime.UtcNow)
-            );
 
             await _publisher.PublishAsync(new UserProfileUpdatedEvent
             {
@@ -54,7 +47,9 @@ namespace Application.Future.User.Command.Handlers
                 NewUsername = normalizedUsername
             });
 
-            return Success("Username updated successfully.");
+    
+            var update = Builders<AppUser>.Update.Set(u => u.UserName, normalizedUsername);
+            return await UpdateUserFieldAsync(ObjectId.Parse(request.UserId), update);
         }
 
         public async Task<Response<string>> Handle(UpdateBioModel request, CancellationToken cancellationToken)
@@ -62,16 +57,9 @@ namespace Application.Future.User.Command.Handlers
             if (request.NewBio?.Length > 500)
                 return UnprocessableEntity<string>("Bio cannot exceed 500 characters.");
 
-            await _userRepo.UpdateAsync(
-                u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.Bio, request.NewBio)
-            );
-            await _userRepo.UpdateAsync(
-                u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.UpdateTime, DateTime.UtcNow)
-            );
-
-            return Success("Bio updated successfully.");
+            // Bio
+            var update = Builders<AppUser>.Update.Set(u => u.Bio, request.NewBio);
+            return await UpdateUserFieldAsync(ObjectId.Parse(request.UserId), update);
         }
 
         public async Task<Response<string>> Handle(UpdatePasswordModel request, CancellationToken cancellationToken)
@@ -89,38 +77,14 @@ namespace Application.Future.User.Command.Handlers
 
             // Hash and update
             var newHash = _security.HashPassword(request.NewPassword);
-            await _userRepo.UpdateAsync(
-                u => u.Id == user.Id,
-                update => update.Set(x => x.PasswordHash, newHash)
-            );
-            await _userRepo.UpdateAsync(
-                u => u.Id == user.Id,
-                update => update.Set(x => x.UpdateTime, DateTime.UtcNow)
-            );
+            var update = Builders<AppUser>.Update.Set(u => u.PasswordHash, newHash);
+            return await UpdateUserFieldAsync(user.Id, update);
 
-            return Success("Password updated successfully.");
         }
 
         public async Task<Response<string>> Handle(UpdateAvatarModel request, CancellationToken cancellationToken)
         {
-            var user = await _userRepo.FindOneAsync(u => u.Id == ObjectId.Parse(request.UserId));
-            if (user != null && !string.IsNullOrEmpty(user.AvatarUrl))
-            {
-                var oldPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", user.AvatarUrl.TrimStart('/'));
-                if (System.IO.File.Exists(oldPath))
-                {
-                    try { System.IO.File.Delete(oldPath); } catch { }
-                }
-            }
-
-            await _userRepo.UpdateAsync(
-                u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.AvatarUrl, request.NewAvatarUrl)
-            );
-            await _userRepo.UpdateAsync(
-                u => u.Id == ObjectId.Parse(request.UserId),
-                update => update.Set(x => x.UpdateTime, DateTime.UtcNow)
-            );
+          
 
             await _publisher.PublishAsync(new UserProfileUpdatedEvent
             {
@@ -128,7 +92,19 @@ namespace Application.Future.User.Command.Handlers
                 NewAvatarUrl = request.NewAvatarUrl
             });
 
-            return Success("Avatar updated successfully.");
+            var update = Builders<AppUser>.Update.Set(u => u.AvatarUrl, request.NewAvatarUrl);
+            return await UpdateUserFieldAsync(ObjectId.Parse(request.UserId), update);
+        }
+
+
+        private async Task<Response<string>> UpdateUserFieldAsync(ObjectId userId, UpdateDefinition<AppUser> update)
+        {
+            var filter = Builders<AppUser>.Filter.Eq(u => u.Id, userId);
+            var finalUpdate = update.Set(u => u.UpdateTime, DateTime.UtcNow);
+
+            var result = await _userRepo.GetMongoCollection().UpdateOneAsync(filter, finalUpdate);
+            if (result.MatchedCount == 0) return NotFound<string>("User not found.");
+            return Success("Update successful.");
         }
     }
 }
