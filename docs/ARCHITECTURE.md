@@ -61,47 +61,48 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
 ## 3. Microservices Dependency Map
 
 ```mermaid
-graph TB
-    subgraph "Client Layer"
-        Client[User Client]
-    end
-
+graph TD
+    Client[User Client]
+    
     subgraph "API Layer"
-        Api[API Service]
+        API[API Service]
     end
-
+    
     subgraph "Real-time Layer"
         Gateway[Gateway Service]
     end
-
+    
+    subgraph "Message Bus"
+        RabbitMQ[(RabbitMQ)]
+    end
+    
     subgraph "Logic Layer"
         Worker[Worker Service]
         Orleans[Orleans Silo]
         BPW[Broadcast Prep Worker]
-        RabbitMQ[(RabbitMQ)]
     end
-
+    
     subgraph "Data Layer"
         MongoDB[(MongoDB)]
     end
 
-    Client -->|HTTP/REST| Api
-    Client -->|WebSockets| Gateway
-
-    Api -->|Publish Commands| RabbitMQ
-    Gateway -->|Publish Commands| RabbitMQ
-
-    RabbitMQ -->|Consume| Worker
-    RabbitMQ -->|Consume| BPW
-
-    Worker -->|Grain Calls| Orleans
-    Worker -->|CRUD| MongoDB
+    Client -->|HTTP| API
+    Client -->|WebSocket| Gateway
+    
+    API -->|Commands| RabbitMQ
+    Gateway -->|Commands| RabbitMQ
+    
+    RabbitMQ -->|Messages| Worker
+    RabbitMQ -->|Messages| BPW
+    
+    Worker -->|Grain State| Orleans
+    Worker -->|Persist| MongoDB
     BPW -->|Read| MongoDB
-
-    BPW -->|Broadcast Commands| RabbitMQ
-    RabbitMQ -->|Push Messages| Gateway
-
-    Gateway -->|WebSocket Push| Client
+    
+    BPW -->|Broadcast| RabbitMQ
+    RabbitMQ -->|Push| Gateway
+    
+    Gateway -->|WebSocket| Client
 ```
 
 ---
