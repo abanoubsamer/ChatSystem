@@ -61,48 +61,49 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
 ## 3. Microservices Dependency Map
 
 ```mermaid
-graph TD
-    Client[User Client]
-    
-    subgraph "API Layer"
-        API[API Service]
-    end
-    
-    subgraph "Real-time Layer"
-        Gateway[Gateway Service]
-    end
-    
-    subgraph "Message Bus"
-        RabbitMQ[(RabbitMQ)]
-    end
-    
-    subgraph "Logic Layer"
-        Worker[Worker Service]
-        Orleans[Orleans Silo]
-        BPW[Broadcast Prep Worker]
-    end
-    
-    subgraph "Data Layer"
-        MongoDB[(MongoDB)]
+flowchart TB
+    subgraph api["☁️ API Layer"]
+        client[("👤 User Client")]
+        api_svc[("🔌 API Service")]
     end
 
-    Client -->|HTTP| API
-    Client -->|WebSocket| Gateway
+    subgraph gateway["⚡ Real-time Layer"]
+        gateway_svc[("🌐 Gateway Service")]
+    end
+
+    subgraph logic["⚙️ Logic Layer"]
+        worker[("🔧 Worker Service")]
+        orleans[("🎯 Orleans Silo")]
+        bp_worker[("📡 Broadcast Prep")]
+        rabbitmq[("🐰 RabbitMQ")]
+    end
+
+    subgraph data["🗄️ Data Layer"]
+        mongodb[("🍃 MongoDB")]
+    end
+
+    client -->|REST API| api_svc
+    client -->|WebSocket| gateway_svc
     
-    API -->|Commands| RabbitMQ
-    Gateway -->|Commands| RabbitMQ
+    api_svc -->|Publish| rabbitmq
+    gateway_svc -->|Publish| rabbitmq
     
-    RabbitMQ -->|Messages| Worker
-    RabbitMQ -->|Messages| BPW
+    rabbitmq -->|Consume| worker
+    rabbitmq -->|Consume| bp_worker
     
-    Worker -->|Grain State| Orleans
-    Worker -->|Persist| MongoDB
-    BPW -->|Read| MongoDB
+    worker -->|Grain Calls| orleans
+    worker -->|Read/Write| mongodb
     
-    BPW -->|Broadcast| RabbitMQ
-    RabbitMQ -->|Push| Gateway
+    bp_worker -->|Read/Write| mongodb
+    bp_worker -->|Publish| rabbitmq
     
-    Gateway -->|WebSocket| Client
+    rabbitmq -->|Broadcast| gateway_svc
+    gateway_svc -->|Push| client
+
+    style api fill:#e1f5fe
+    style gateway fill:#fff3e0
+    style logic fill:#e8f5e9
+    style data fill:#fce4ec
 ```
 
 ---
