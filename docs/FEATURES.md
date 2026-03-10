@@ -1,0 +1,139 @@
+# System Features & Flows
+
+This document details all the features implemented in the **ChatSystem** and provides step-by-step execution flows for the most critical operations.
+
+---
+
+## 1. Feature Discovery
+
+### 1.1 Messaging Features
+- **Real-time Messaging**: Bi-directional message exchange over WebSockets.
+- **Message Persistence**: All messages are stored in MongoDB.
+- **Media Attachments**: Support for images/files with metadata (size, dimensions, duration).
+- **Message Reply**: References to previous messages.
+- **Message Forwarding**: Re-publishing existing messages to new chats.
+- **Message Status Tracking**:
+    - **Sent**: Message recorded in DB.
+    - **Delivered**: Receiver client acknowledged receipt.
+    - **Seen**: Receiver client marked message as read.
+- **Idempotency**: `clientMessageId` handling to prevent duplicate messages during retries.
+
+### 1.2 Chat & Presence Features
+- **Direct Messaging**: One-on-one chats.
+- **Group Chats**: Multi-participant conversations.
+- **Chat Snapshots**: Per-user localized view of chats (last message, unread count).
+- **Presence System**: Real-time online/offline status tracking.
+- **Typing Indicators**: Real-time notifications when a user is typing (implemented via `UserStateMethodHndler`).
+
+### 1.3 WebRTC Signaling Features
+- **P2P Video/Voice Calls**: Direct calls between two users.
+- **Group Calls**: Multi-user calls with a central session.
+- **Signaling Exchange**:
+    - **Offer/Answer**: SDP exchange for WebRTC peer connection.
+    - **ICE Candidates**: Network path discovery signals.
+- **Call Session Management**:
+    - **Ring Timeout**: Calls auto-cancel if not answered within 30 seconds.
+    - **Active Call Guard**: Prevents creating multiple calls for the same chat.
+    - **Call Join/Leave**: Managing participants in a session.
+- **Media State**: Synchronizing mute/unmute and camera on/off states.
+
+---
+
+## 2. Core Execution Flows
+
+### 2.1 Chat Message Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client (Sender)
+    participant G as Gateway
+    participant R as RabbitMQ
+    participant W as Worker
+    participant O as Orleans (ChatGrain)
+    participant B as Broadcast Prep Worker
+    participant DB as MongoDB
+
+    C->>G: WebSocket: NewMessage(InsertMessageCommand)
+    G->>R: Publish InsertMessageCommand
+    R->>W: Consume InsertMessageCommand
+    W->>DB: Save Message
+    W->>R: Publish MessageCreatedEvent
+    R->>B: Consume MessageCreatedEvent
+
+    par Side Effects in BPW
+        B->>DB: Update Chat Snapshots
+        B->>R: Publish BroadcastMessageCommand
+    end
+
+    R->>G: Consume BroadcastMessageCommand
+    G->>C: WebSocket Push: NewMessage
+```
+
+### 2.2 Message ACK Flow (Delivery/Seen)
+
+```mermaid
+sequenceDiagram
+    participant C as Client (Receiver)
+    participant G as Gateway
+    participant R as RabbitMQ
+    participant W as Worker
+    participant O as Orleans (ChatGrain)
+
+    C->>G: WebSocket: MessageReceivedAck
+    G->>R: Publish MessageDeliveredCommand
+    R->>W: Consume MessageDeliveredCommand
+    W->>O: ChatGrain.ReceiveAckAsync(memberId, msgId, AckType.Delivery)
+    Note over O: Bitmask updated. If all members acked, publish event.
+    O->>R: Publish MessageDeliveredAckEvent
+    R->>G: Consume MessageDeliveredAckEvent
+    G->>C: WebSocket Push: Update UI Status
+```
+
+### 2.3 WebRTC Signaling Flow
+
+```mermaid
+sequenceDiagram
+    participant A as Caller
+    participant G as Gateway
+    participant B as Callee
+    participant S as Session Store (In-Memory)
+
+    A->>G: WebSocket: offer(Target, SDP)
+    G->>S: Create Session ID
+    G->>B: WebSocket Push: offer(SessionId, Sender, SDP)
+    B->>G: WebSocket: answer(SessionId, SDP)
+    G->>A: WebSocket Push: answer(SDP)
+
+    rect rgb(200, 255, 200)
+    Note over A,B: ICE Candidate Exchange
+    A->>G: ice_candidate
+    G->>B: ice_candidate
+    B->>G: ice_candidate
+    G->>A: ice_candidate
+    end
+
+    Note over A,B: P2P Connection Established
+```
+
+---
+
+## 3. Implementation Details
+
+### 3.1 ACK Bitmasking (The `ChatGrain`)
+The system uses a highly optimized bitmasking approach to track message status in large groups.
+- Each member is assigned an `index` in the `ChatGrain`.
+- A `byte[]` bitmap is maintained for each message.
+- When a user sends an ACK, the bit at their `index` is set to `1`.
+- This avoids millions of individual ACK records in the database, storing only the "High Watermark" of ACKs periodically.
+
+### 3.2 Chat Snapshots
+Instead of querying the `Messages` collection and joining with `Users` to render the chat list, the system maintains a `ChatSnapshots` collection.
+- Every time a message is sent, the `BroadcastPreparationWorker` updates the snapshot for **all** participants.
+- The snapshot contains `LastMessageContent`, `LastMessageSender`, and `UnreadCount`.
+- Clients query this collection via the `SnapshotsController` for near-instant UI loading.
+
+### 3.3 Ring Timeout logic
+In `CreateGroupCallHandler`, when a call starts:
+1. A timer is started via `IRingTimeoutService`.
+2. If `JoinCallMethodHandler` is called (someone answers), the timer is cancelled.
+3. If the timer expires (30s), a `HandleRingTimeoutAsync` cleanup runs, removing the session and notifying participants of a "Missed Call".
