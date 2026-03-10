@@ -4,6 +4,7 @@ using Contracts.Enums;
 using Contracts.Snapshot.Chat.Command;
 using Domain.Models;
 using Domain.Models.Snapshot;
+using Application.Abstractions.Repositories.GenaricRepo;
 using Infrastructure.Repositories.GenaricRepo;
 using Microsoft.Extensions.Caching.Memory;
 using MongoDB.Bson;

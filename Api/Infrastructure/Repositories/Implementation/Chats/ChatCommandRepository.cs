@@ -3,6 +3,7 @@ using Application.Result;
 using Contracts.Enums;
 using Domain.Models;
 using Domain.Models.Snapshot;
+using Application.Abstractions.Repositories.GenaricRepo;
 using Infrastructure.Repositories.GenaricRepo;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;

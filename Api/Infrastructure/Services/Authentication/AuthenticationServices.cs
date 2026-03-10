@@ -3,6 +3,7 @@ using Application.Abstractions.Services.Security;
 using Application.Dtos.IAuthentication;
 using Application.Result;
 using Domain.Models;
+using Application.Abstractions.Repositories.GenaricRepo;
 using Infrastructure.Repositories.GenaricRepo;
 using Microsoft.AspNetCore.Http;
 using Microsoft.IdentityModel.Tokens;

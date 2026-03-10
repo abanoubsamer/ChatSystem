@@ -5,6 +5,7 @@ using Domain.Models;
 using Domain.Models.Snapshot;
 using Domain.Models.State;
 using Domain.Models.State.Chat;
+using Application.Abstractions.Repositories.GenaricRepo;
 using Infrastructure.Repositories.GenaricRepo;
 using Microsoft.Extensions.Caching.Memory;
 using MongoDB.Bson;

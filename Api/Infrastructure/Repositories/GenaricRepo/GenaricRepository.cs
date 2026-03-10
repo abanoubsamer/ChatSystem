@@ -3,6 +3,9 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Linq.Expressions;
 
+using Application.Abstractions.Repositories.GenaricRepo;
+using Infrastructure.Repositories.GenaricRepo;
+
 namespace Infrastructure.Repositories.GenaricRepo
 {
     public class GenaricRepository<T> : IGenaricRepository<T> where T : class

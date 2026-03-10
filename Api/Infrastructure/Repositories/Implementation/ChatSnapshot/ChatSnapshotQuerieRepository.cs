@@ -4,6 +4,7 @@ using Application.Dtos.User;
 using Application.Future.Snapshot.Queries.Response;
 using Contracts.Message.Dtos;
 using Domain.Models.Snapshot;
+using Application.Abstractions.Repositories.GenaricRepo;
 using Infrastructure.Repositories.GenaricRepo;
 using MongoDB.Bson;
 using MongoDB.Driver;
