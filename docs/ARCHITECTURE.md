@@ -61,24 +61,47 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
 ## 3. Microservices Dependency Map
 
 ```mermaid
-graph TD
-    Client((Client)) -->|REST API| Api[API Service]
-    Client -->|WebSockets| Gateway[Gateway Service]
+graph TB
+    subgraph "Client Layer"
+        Client[User Client]
+    end
 
-    Api -->|Publish Command| RabbitMQ{RabbitMQ / MassTransit}
-    Gateway -->|Publish Command| RabbitMQ
+    subgraph "API Layer"
+        Api[API Service]
+    end
 
-    RabbitMQ -->|Consume| Worker[Worker Service]
-    Worker -->|Orleans Grains| Orleans((Orleans Cluster))
-    Worker -->|Persist| MongoDB[(MongoDB)]
+    subgraph "Real-time Layer"
+        Gateway[Gateway Service]
+    end
 
-    Worker -->|Publish Event| RabbitMQ
-    RabbitMQ -->|Consume| BPW[Broadcast Prep Worker]
+    subgraph "Logic Layer"
+        Worker[Worker Service]
+        Orleans[Orleans Silo]
+        BPW[Broadcast Prep Worker]
+        RabbitMQ[(RabbitMQ)]
+    end
 
-    BPW -->|Publish Broadcast Cmd| RabbitMQ
-    RabbitMQ -->|Consume| Gateway
+    subgraph "Data Layer"
+        MongoDB[(MongoDB)]
+    end
 
-    Gateway -->|Push| Client
+    Client -->|HTTP/REST| Api
+    Client -->|WebSockets| Gateway
+
+    Api -->|Publish Commands| RabbitMQ
+    Gateway -->|Publish Commands| RabbitMQ
+
+    RabbitMQ -->|Consume| Worker
+    RabbitMQ -->|Consume| BPW
+
+    Worker -->|Grain Calls| Orleans
+    Worker -->|CRUD| MongoDB
+    BPW -->|Read| MongoDB
+
+    BPW -->|Broadcast Commands| RabbitMQ
+    RabbitMQ -->|Push Messages| Gateway
+
+    Gateway -->|WebSocket Push| Client
 ```
 
 ---
