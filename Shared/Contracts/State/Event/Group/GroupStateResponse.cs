@@ -10,7 +10,6 @@ namespace Contracts.State.Event.Group
     {
          public string Type = "GroupStateResponse";
          public string GroupId { get; set; }
-         public string? SessionId { get; set; }
          public bool IsOnline { get; set; }
          public int CountOnlineMembers { get; set; }
          public int TotalMembers { get; set; }

@@ -25,6 +25,7 @@
 - **Advanced State Management**: Uses **Microsoft Orleans** for ultra-efficient message ACK tracking in large groups.
 - **WebRTC Signaling**: Full support for P2P and Group video/voice calls.
 - **Enterprise Design**: Clean Architecture, CQRS, and Robust Error Handling (DLQs, Retries).
+- **Profile Synchronization**: Automatic propagation of user profile updates (Username, Avatar) across all active chats and contact lists.
 
 ---
 
@@ -99,6 +100,7 @@ ChatSystem/
 ---
 
 ## 🗺️ Roadmap & Future Improvements
+- [x] **Profile Sync**: Event-driven synchronization of user data.
 - [ ] **Redis Caching**: Faster user session lookups.
 - [ ] **Global Rate Limiting**: Protection against DDoS and API abuse.
 - [ ] **OpenTelemetry**: Integrated tracing across microservices.

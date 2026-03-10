@@ -13,9 +13,8 @@ namespace Application.Future.User.Query.Response
         public string UserName { get; set; }
         public string UserId { get; set; }
         public string Email { get; set; }
-        public string? Bio { get; set; }
         public long LastVerion { get; set; }
-        public string? Avater { get; set; }
+        public string Avater { get; set; }
 
     }
 

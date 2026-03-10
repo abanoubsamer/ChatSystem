@@ -24,6 +24,7 @@ This document details all the features implemented in the **ChatSystem** and pro
 - **Chat Snapshots**: Per-user localized view of chats (last message, unread count).
 - **Presence System**: Real-time online/offline status tracking.
 - **Typing Indicators**: Real-time notifications when a user is typing (implemented via `UserStateMethodHndler`).
+- **Profile Synchronization**: Asynchronous propagation of username and avatar changes to ensure consistency in contact lists and chat snapshots across all users.
 
 ### 1.3 WebRTC Signaling Features
 - **P2P Video/Voice Calls**: Direct calls between two users.

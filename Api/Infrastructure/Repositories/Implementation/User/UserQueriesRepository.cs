@@ -29,8 +29,7 @@ namespace Infrastructure.Repositories.Implementation.User
                     UserName = u.UserName,
                     Email = u.Email,
                     LastVerion = u.LastVersions,
-                    Avater = u.AvatarUrl,
-                    Bio = u.Bio,
+                    Avater = u.AvatarUrl
                 })
                 .FirstOrDefaultAsync();
            
