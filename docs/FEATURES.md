@@ -45,13 +45,22 @@ This document details all the features implemented in the **ChatSystem** and pro
 
 ```mermaid
 sequenceDiagram
-    participant C as Client (Sender)
-    participant G as Gateway
-    participant R as RabbitMQ
-    participant W as Worker
-    participant O as Orleans (ChatGrain)
-    participant B as Broadcast Prep Worker
-    participant DB as MongoDB
+    participant C as 👤 Client (Sender)
+    participant G as 🌐 Gateway
+    participant R as 🐰 RabbitMQ
+    participant W as 🔧 Worker
+    participant O as 🎯 Orleans (ChatGrain)
+    participant B as 📡 Broadcast Prep Worker
+    participant DB as 🍃 MongoDB
+
+    %% Color styling via notes
+    Note over C: fill:#BBDEFB,stroke:#0D47A1,color:#000
+    Note over G: fill:#FFE0B2,stroke:#FB8C00,color:#000
+    Note over R: fill:#D1C4E9,stroke:#673AB7,color:#000
+    Note over W: fill:#C8E6C9,stroke:#2E7D32,color:#000
+    Note over O: fill:#81C784,stroke:#1B5E20,color:#fff
+    Note over B: fill:#FFF59D,stroke:#FBC02D,color:#000
+    Note over DB: fill:#F8BBD0,stroke:#C2185B,color:#000
 
     C->>G: WebSocket: NewMessage(InsertMessageCommand)
     G->>R: Publish InsertMessageCommand
@@ -73,11 +82,11 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant C as Client (Receiver)
-    participant G as Gateway
-    participant R as RabbitMQ
-    participant W as Worker
-    participant O as Orleans (ChatGrain)
+    participant C as 👤 Client (Receiver)
+    participant G as 🌐 Gateway
+    participant R as 🐰 RabbitMQ
+    participant W as 🔧 Worker
+    participant O as 🎯 Orleans (ChatGrain)
 
     C->>G: WebSocket: MessageReceivedAck
     G->>R: Publish MessageDeliveredCommand
@@ -93,10 +102,10 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant A as Caller
-    participant G as Gateway
-    participant B as Callee
-    participant S as Session Store (In-Memory)
+    participant A as 👤 Caller
+    participant G as 🌐 Gateway
+    participant B as 👤 Callee
+    participant S as 🗄️ Session Store (In-Memory)
 
     A->>G: WebSocket: offer(Target, SDP)
     G->>S: Create Session ID
@@ -104,7 +113,7 @@ sequenceDiagram
     B->>G: WebSocket: answer(SessionId, SDP)
     G->>A: WebSocket Push: answer(SDP)
 
-    rect rgb(200, 255, 200)
+    rect rgb(0,100,0)
     Note over A,B: ICE Candidate Exchange
     A->>G: ice_candidate
     G->>B: ice_candidate
