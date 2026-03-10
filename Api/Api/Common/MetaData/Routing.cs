@@ -30,6 +30,10 @@ namespace Api.Common.MetaData
             public const string Prefix = Role + "User/";
             public const string GetInfo = Prefix + "GetInfo";
             public const string SearchToUser = Prefix +"SearchBy/"+ EmailName ;
+            public const string UpdateUsername = Prefix + "update-username";
+            public const string UpdateBio = Prefix + "update-bio";
+            public const string UpdatePassword = Prefix + "update-password";
+            public const string UpdateAvatar = Prefix + "update-avatar";
 
         }
         public static class Chat

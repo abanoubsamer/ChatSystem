@@ -2,6 +2,7 @@
 using Application.Abstractions.Repositories.Messages;
 using Application.Result;
 using Domain.Models;
+using Application.Abstractions.Repositories.GenaricRepo;
 using Infrastructure.Repositories.GenaricRepo;
 using System;
 using System.Collections.Generic;

@@ -2,6 +2,7 @@
 using Application.Dtos.Contact;
 using Application.Future.User.Query.Response;
 using Domain.Models;
+using Application.Abstractions.Repositories.GenaricRepo;
 using Infrastructure.Repositories.GenaricRepo;
 using MongoDB.Bson;
 using MongoDB.Driver;

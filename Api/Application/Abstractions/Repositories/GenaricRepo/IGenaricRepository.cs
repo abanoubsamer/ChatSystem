@@ -3,7 +3,7 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Linq.Expressions;
 
-namespace Infrastructure.Repositories.GenaricRepo
+namespace Application.Abstractions.Repositories.GenaricRepo
 {
     public interface IGenaricRepository<T> where T : class
     {

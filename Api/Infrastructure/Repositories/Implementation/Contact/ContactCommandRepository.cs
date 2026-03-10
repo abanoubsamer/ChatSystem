@@ -2,6 +2,7 @@ using Application.Abstractions.Repositories.Contact;
 using Application.Dtos.Contact;
 using Core.Basic;
 using Domain.Models;
+using Application.Abstractions.Repositories.GenaricRepo;
 using Infrastructure.Repositories.GenaricRepo;
 using MongoDB.Bson;
 using MongoDB.Driver;

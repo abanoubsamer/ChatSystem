@@ -5,6 +5,7 @@ using Application.Future.Messages.Querey.Response;
 using Contracts.Enums;
 using Contracts.Message.Dtos;
 using Domain.Models;
+using Application.Abstractions.Repositories.GenaricRepo;
 using Infrastructure.Repositories.GenaricRepo;
 using Microsoft.VisualBasic;
 using MongoDB.Bson;

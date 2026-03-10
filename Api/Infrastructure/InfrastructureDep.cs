@@ -9,6 +9,7 @@ using Application.Abstractions.Services.Publisher;
 using Application.Abstractions.Services.Security;
 using Domain.OptionsConfiguration;
 using Infrastructure.MongoDb.Configurations;
+using Application.Abstractions.Repositories.GenaricRepo;
 using Infrastructure.Repositories.GenaricRepo;
 using Infrastructure.Repositories.Implementation.Chats;
 using Infrastructure.Repositories.Implementation.ChatSnapshot;
