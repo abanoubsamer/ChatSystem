@@ -100,10 +100,10 @@ flowchart TB
     rabbitmq -->|Broadcast| gateway_svc
     gateway_svc -->|Push| client
 
-    style api fill:#e1f5fe
-    style gateway fill:#fff3e0
-    style logic fill:#e8f5e9
-    style data fill:#fce4ec
+    style api fill:#1565C0,stroke:#0D47A1,stroke-width:2px,color:#FFFFFF
+    style gateway fill:#EF6C00,stroke:#E65100,stroke-width:2px,color:#FFFFFF
+    style logic fill:#2E7D32,stroke:#1B5E20,stroke-width:2px,color:#FFFFFF
+    style data fill:#C2185B,stroke:#880E4F,stroke-width:2px,color:#FFFFFF
 ```
 
 ---
