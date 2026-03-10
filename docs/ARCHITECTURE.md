@@ -173,53 +173,7 @@ The system uses an **Event-Driven Architecture** with several patterns to ensure
 
 ---
 
-## 9. System Architecture Diagram (Mermaid)
 
-```mermaid
-flowchart TB
-    subgraph api["☁️ API Layer"]
-        client[("👤 User Client")]
-        api_svc[("🔌 API Service")]
-    end
-
-    subgraph gateway["⚡ Real-time Layer"]
-        gateway_svc[("🌐 Gateway Service")]
-    end
-
-    subgraph logic["⚙️ Logic Layer"]
-        worker[("🔧 Worker Service")]
-        orleans[("🎯 Orleans Silo")]
-        bp_worker[("📡 Broadcast Prep")]
-        rabbitmq[("🐰 RabbitMQ")]
-    end
-
-    subgraph data["🗄️ Data Layer"]
-        mongodb[("🍃 MongoDB")]
-    end
-
-    client -->|REST API| api_svc
-    client -->|WebSocket| gateway_svc
-    
-    api_svc -->|Publish| rabbitmq
-    gateway_svc -->|Publish| rabbitmq
-    
-    rabbitmq -->|Consume| worker
-    rabbitmq -->|Consume| bp_worker
-    
-    worker -->|Grain Calls| orleans
-    worker -->|Read/Write| mongodb
-    
-    bp_worker -->|Read/Write| mongodb
-    bp_worker -->|Publish| rabbitmq
-    
-    rabbitmq -->|Broadcast| gateway_svc
-    gateway_svc -->|Push| client
-
-    style api fill:#e1f5fe
-    style gateway fill:#fff3e0
-    style logic fill:#e8f5e9
-    style data fill:#fce4ec
-```
 
 ---
 
