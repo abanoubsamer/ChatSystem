@@ -25,6 +25,7 @@ using Infrastructure.ConsumerHandler.Chat;
 using Infrastructure.ConsumerHandler.Message.Commend;
 using Infrastructure.ConsumerHandler.Snapshot.Chat.Commend;
 using Infrastructure.ConsumerHandler.User.Command;
+using Infrastructure.ConsumerHandler.User.Events;
 using Infrastructure.ConsumerHandler.User.Query;
 using Infrastructure.Handler.Ack;
 using Infrastructure.Repositories.GenaricRepo;
@@ -90,6 +91,7 @@ namespace Infrastructure
                 cfg.AddConsumer<UpdateSnapDeliveryStatusConsumer>();
                 cfg.AddConsumer<UpdateSeenStatusConsumer>();
                 cfg.AddConsumer<NewChatConsumer>();
+                cfg.AddConsumer<UserProfileUpdatedConsumer>();
                 cfg.AddConsumer<SessionCreatedConsumer>();
                 cfg.AddConsumer<ParticipantJoinedConsumer>();
                 cfg.AddConsumer<ParticipantLeftConsumer>();
@@ -147,6 +149,11 @@ namespace Infrastructure
                     bus.ReceiveEndpoint("WebSocket-New-Chat-queue", e =>
                     {
                         e.ConfigureConsumer<NewChatConsumer>(context);
+                    });
+
+                    bus.ReceiveEndpoint("User-Profile-Updated-queue", e =>
+                    {
+                        e.ConfigureConsumer<UserProfileUpdatedConsumer>(context);
                     });
 
 

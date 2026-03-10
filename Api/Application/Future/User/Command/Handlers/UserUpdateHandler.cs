@@ -1,6 +1,8 @@
 using Application.Abstractions.Repositories.GenaricRepo;
+using Application.Abstractions.Services.Publisher;
 using Application.Abstractions.Services.Security;
 using Application.Future.User.Command.Models;
+using Contracts.User.Events;
 using Core.Basic;
 using Domain.Models;
 using MediatR;
@@ -16,11 +18,13 @@ namespace Application.Future.User.Command.Handlers
     {
         private readonly IGenaricRepository<AppUser> _userRepo;
         private readonly ISecurityServices _security;
+        private readonly IMessagePublisher _publisher;
 
-        public UserUpdateHandler(IGenaricRepository<AppUser> userRepo, ISecurityServices security)
+        public UserUpdateHandler(IGenaricRepository<AppUser> userRepo, ISecurityServices security, IMessagePublisher publisher)
         {
             _userRepo = userRepo;
             _security = security;
+            _publisher = publisher;
         }
 
         public async Task<Response<string>> Handle(UpdateUsernameModel request, CancellationToken cancellationToken)
@@ -43,6 +47,12 @@ namespace Application.Future.User.Command.Handlers
                 u => u.Id == ObjectId.Parse(request.UserId),
                 update => update.Set(x => x.UpdateTime, DateTime.UtcNow)
             );
+
+            await _publisher.PublishAsync(new UserProfileUpdatedEvent
+            {
+                UserId = request.UserId,
+                NewUsername = normalizedUsername
+            });
 
             return Success("Username updated successfully.");
         }
@@ -111,6 +121,12 @@ namespace Application.Future.User.Command.Handlers
                 u => u.Id == ObjectId.Parse(request.UserId),
                 update => update.Set(x => x.UpdateTime, DateTime.UtcNow)
             );
+
+            await _publisher.PublishAsync(new UserProfileUpdatedEvent
+            {
+                UserId = request.UserId,
+                NewAvatarUrl = request.NewAvatarUrl
+            });
 
             return Success("Avatar updated successfully.");
         }
