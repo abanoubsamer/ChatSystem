@@ -1,88 +1,173 @@
-# User Profile Update API Design
+# ChatSystem – User Profile Update API
 
 This document outlines the API design for updating user personal information in the ChatSystem.
+All updates require a valid JWT token for authentication.
 
 ---
 
 ## 1. API Endpoints
 
-All endpoints require a valid JWT token.
-
 ### 1.1 Update Username
-- **Endpoint**: `PATCH /api/v1/user/update-username`
-- **Method**: `PATCH`
-- **Purpose**: Allows the user to change their unique username.
-- **Request Body (JSON)**:
-  ```json
-  {
-    "username": "new_awesome_username"
-  }
-  ```
-- **Validation Rules**:
-    - Required.
-    - 3-50 characters.
-    - Alphanumeric characters and underscores only.
-    - Must be unique in the system.
+
+* **Endpoint**: `PATCH /api/v1/user/update-username`
+* **Method**: `PATCH`
+* **Purpose**: Allows the user to change their unique username.
+* **Request Body (JSON)**:
+
+```json
+{
+  "username": "new_awesome_username"
+}
+```
+
+* **Validation Rules**:
+
+  * Required.
+  * 3–50 characters.
+  * Alphanumeric characters and underscores only.
+  * Must be unique in the system.
+
+---
 
 ### 1.2 Update Bio
-- **Endpoint**: `PATCH /api/v1/user/update-bio`
-- **Method**: `PATCH`
-- **Purpose**: Updates the user's short biography or status.
-- **Request Body (JSON)**:
-  ```json
-  {
-    "bio": "Software Engineer | Tech Enthusiast"
-  }
-  ```
-- **Validation Rules**:
-    - Max 500 characters.
+
+* **Endpoint**: `PATCH /api/v1/user/update-bio`
+* **Method**: `PATCH`
+* **Purpose**: Updates the user's short biography or status.
+* **Request Body (JSON)**:
+
+```json
+{
+  "bio": "Software Engineer | Tech Enthusiast"
+}
+```
+
+* **Validation Rules**:
+
+  * Max 500 characters.
+
+---
 
 ### 1.3 Update Password
-- **Endpoint**: `PATCH /api/v1/user/update-password`
-- **Method**: `PATCH`
-- **Purpose**: Securely updates the user's password.
-- **Request Body (JSON)**:
-  ```json
-  {
-    "currentPassword": "old_password_123",
-    "newPassword": "Secure_New_Password_!99"
-  }
-  ```
-- **Validation Rules**:
-    - `currentPassword`: Required.
-    - `newPassword`: Required, must follow strong password policy (Min 8 chars, uppercase, lowercase, digit, special char).
-- **Security Considerations**:
-    - Current password must be verified against the stored hash before applying changes.
-    - Passwords must be hashed using BCrypt before storage.
 
-### 1.4 Update Profile Picture
-- **Endpoint**: `PATCH /api/v1/user/update-avatar`
-- **Method**: `PATCH`
-- **Purpose**: Uploads a new profile picture.
-- **Content-Type**: `multipart/form-data`
-- **Request Parameters**:
-    - `avatar`: File (Image)
-- **Validation Rules**:
-    - Allowed formats: `.jpg`, `.jpeg`, `.png`, `.webp`.
-    - Maximum file size: 5MB.
+* **Endpoint**: `PATCH /api/v1/user/update-password`
+* **Method**: `PATCH`
+* **Purpose**: Securely updates the user's password.
+* **Request Body (JSON)**:
+
+```json
+{
+  "currentPassword": "old_password_123",
+  "newPassword": "Secure_New_Password_!99"
+}
+```
+
+* **Validation Rules**:
+
+  * `currentPassword`: Required.
+  * `newPassword`: Required, must follow strong password policy:
+
+    * Minimum 8 characters
+    * Uppercase, lowercase, digit, special character
+* **Security Considerations**:
+
+  * Current password must be verified against the stored hash before applying changes.
+  * Passwords must be hashed using BCrypt before storage.
 
 ---
 
-## 2. Image Handling Strategy
+### 1.4 Update Profile Picture (Avatar)
 
-### Storage Approach: Local Server Storage
-For this implementation, images will be stored on the local file system of the API server.
+* **Endpoint**: `PATCH /api/v1/user/update-avatar`
+* **Method**: `PATCH`
+* **Purpose**: Updates the user's profile picture via a URL uploaded to cloud storage.
+* **Request Body (JSON)**:
 
-1.  **Directory**: `wwwroot/uploads/avatars/`.
-2.  **File Naming**: Files will be renamed using a `Guid` to prevent collisions (e.g., `a7b8c9...png`).
-3.  **Database Strategy**: Only the relative URL (e.g., `/uploads/avatars/guid.png`) will be stored in the `AvatarUrl` field of the `AppUser` document.
-4.  **Cleanup**: When a user updates their avatar, the old file should be deleted from the server to save space.
+```json
+{
+  "avatarUrl": "https://mycloudstorage.com/uploads/avatars/user123.png"
+}
+```
+
+* **Validation Rules**:
+
+  * Required.
+  * Must be a valid URL.
+  * Optional: ensure the URL points to an image (e.g., `.jpg`, `.png`, `.webp`).
+
+* **Backend Processing**:
+
+  * Only updates the `AvatarUrl` field in the database.
+  * Updates `UpdateTime` timestamp.
+
+* **Frontend Flow**:
+
+  1. Upload image to cloud storage (e.g., Firebase, AWS S3, Cloudinary).
+  2. Receive image URL from the cloud service.
+  3. Send PATCH request to API with `avatarUrl`.
 
 ---
 
-## 3. Security Best Practices
+## 2. Security & Best Practices
 
-1.  **Token Validation**: All update endpoints must verify the user's identity via the JWT `NameIdentifier` claim.
-2.  **Input Sanitization**: Bio and Username must be sanitized to prevent XSS.
-3.  **Password Strength**: Strict password complexity requirements are enforced.
-4.  **Idempotency & Auditing**: Consider logging sensitive changes (like password/username updates).
+1. **JWT Authentication**: All endpoints require valid JWT token.
+2. **Input Sanitization**: Sanitize username and bio to prevent XSS.
+3. **Password Strength**: Enforce strong password policy.
+4. **Idempotency & Auditing**: Consider logging sensitive changes (username, password, avatar URL).
+5. **Data Validation**: All fields are validated before updating in database.
+
+---
+
+## 3. Database Update Strategy
+
+* All updates also set the `UpdateTime` field to the current UTC time.
+* Avatar updates only store the URL, no file uploads handled by backend.
+* Ensures minimal backend load and reduces storage complexity.
+
+---
+
+## 4. Example Requests
+
+### Update Username
+
+```http
+PATCH /api/v1/user/update-username
+Content-Type: application/json
+Authorization: Bearer <JWT_TOKEN>
+
+{
+  "username": "supercoder123"
+}
+```
+
+### Update Bio
+
+```http
+PATCH /api/v1/user/update-bio
+Content-Type: application/json
+Authorization: Bearer <JWT_TOKEN>
+
+{
+  "bio": "Loves coding and coffee ☕"
+}
+```
+
+### Update Password
+
+```http
+PATCH /api/v1/user/update-password
+Content-Type: application/json
+Authorization: Bearer <JWT_TOKEN>
+
+{
+  "currentPassword": "old_password_123",
+  "newPassword": "New_Strong_Pass!99"
+}
+```
+
+### Update Avatar
+
+```http
+PATCH /api/v1/user/update-avatar
+Content-Type: appl
+```
