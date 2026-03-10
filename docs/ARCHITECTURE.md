@@ -190,18 +190,18 @@ architecture-beta
     service rabbitmq(queue)[RabbitMQ] in logic
     service mongodb(database)[MongoDB] in data
 
-    client:T -- T--> api_svc
-    client:B -- B--> gateway_svc
-    api_svc:R -- L--> rabbitmq
-    gateway_svc:R -- L--> rabbitmq
-    rabbitmq:R -- L--> worker
-    rabbitmq:B -- T--> bp_worker
-    worker:R -- L--> orleans
-    worker:B -- T--> mongodb
-    bp_worker:R -- L--> mongodb
-    bp_worker:T -- B--> rabbitmq
-    rabbitmq:T -- B--> gateway_svc
-    gateway_svc:L -- R--> client
+    client:T -- T: api_svc
+    client:B -- B: gateway_svc
+    api_svc:R -- L: rabbitmq
+    gateway_svc:R -- L: rabbitmq
+    rabbitmq:R -- L: worker
+    rabbitmq:B -- T: bp_worker
+    worker:R -- L: orleans
+    worker:B -- T: mongodb
+    bp_worker:R -- L: mongodb
+    bp_worker:T -- B: rabbitmq
+    rabbitmq:T -- B: gateway_svc
+    gateway_svc:L -- R: client
 ```
 
 ---
