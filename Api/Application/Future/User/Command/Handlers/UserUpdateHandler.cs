@@ -1,6 +1,8 @@
 using Application.Abstractions.Repositories.GenaricRepo;
+using Application.Abstractions.Services.Publisher;
 using Application.Abstractions.Services.Security;
 using Application.Future.User.Command.Models;
+using Contracts.User.Events;
 using Core.Basic;
 using Domain.Models;
 using MediatR;
@@ -17,11 +19,13 @@ namespace Application.Future.User.Command.Handlers
     {
         private readonly IGenaricRepository<AppUser> _userRepo;
         private readonly ISecurityServices _security;
+        private readonly IMessagePublisher _publisher;
 
-        public UserUpdateHandler(IGenaricRepository<AppUser> userRepo, ISecurityServices security)
+        public UserUpdateHandler(IGenaricRepository<AppUser> userRepo, ISecurityServices security, IMessagePublisher publisher)
         {
             _userRepo = userRepo;
             _security = security;
+            _publisher = publisher;
         }
 
         public async Task<Response<string>> Handle(UpdateUsernameModel request, CancellationToken cancellationToken)
@@ -36,6 +40,14 @@ namespace Application.Future.User.Command.Handlers
             var exists = await _userRepo.AnyAsync(u => u.UserName == normalizedUsername && u.Id != ObjectId.Parse(request.UserId));
             if (exists) return UnprocessableEntity<string>("Username already exists.");
 
+
+            await _publisher.PublishAsync(new UserProfileUpdatedEvent
+            {
+                UserId = request.UserId,
+                NewUsername = normalizedUsername
+            });
+
+    
             var update = Builders<AppUser>.Update.Set(u => u.UserName, normalizedUsername);
             return await UpdateUserFieldAsync(ObjectId.Parse(request.UserId), update);
         }
@@ -72,6 +84,14 @@ namespace Application.Future.User.Command.Handlers
 
         public async Task<Response<string>> Handle(UpdateAvatarModel request, CancellationToken cancellationToken)
         {
+          
+
+            await _publisher.PublishAsync(new UserProfileUpdatedEvent
+            {
+                UserId = request.UserId,
+                NewAvatarUrl = request.NewAvatarUrl
+            });
+
             var update = Builders<AppUser>.Update.Set(u => u.AvatarUrl, request.NewAvatarUrl);
             return await UpdateUserFieldAsync(ObjectId.Parse(request.UserId), update);
         }
