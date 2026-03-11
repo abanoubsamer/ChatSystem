@@ -24,7 +24,6 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
     - User Profile & Contact Management.
     - Chat & Group Creation.
     - Snapshot Retrieval (Initial state sync).
-    - **Stories Management**: CRUD operations and privacy settings for WhatsApp-like stories.
 - **Tech Stack**: ASP.NET Core, MediatR (CQRS), MongoDB.
 - **Interactions**: Persists data directly to MongoDB; issues commands to the event bus for side effects.
 
@@ -35,7 +34,6 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
     - Ingress Message Handling (Translating WS messages to Event Bus commands).
     - Egress Message Broadcasting (Delivering messages from the Event Bus to specific sockets).
     - **WebRTC Signaling**: Handling `offer`, `answer`, `ice-candidate`, and `call-join` logic.
-    - **Story Notifications**: Real-time delivery of story events (new story, view, reaction, reply).
 - **Internal Modules**: `WebSocketMiddleware`, `GatewayIngressHandler`, `BroadcastManager`, `ConnectionStoreManager`.
 - **Interactions**: Publishes commands to the Worker; consumes broadcast commands from the Event Bus.
 
@@ -46,7 +44,6 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
     - **ACK Tracking**: Using **Orleans Grains** (`ChatGrain`) to track delivery and seen status using bitmasks for extreme efficiency.
     - Call State Management (Tracking active sessions).
     - Member Management logic.
-    - **Story Cleanup**: Automated background job for 24h story expiration and media deletion.
 - **Tech Stack**: Microsoft Orleans, MassTransit, MongoDB.
 - **Interactions**: Consumes commands from the Gateway and API; publishes events (e.g., `MessageCreatedEvent`) for further processing.
 
@@ -56,7 +53,6 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
     - **Fan-out Preparation**: Determining which users need to receive a specific message.
     - **Snapshot Updates**: Updating the "last message" snapshot for all participants in a chat.
     - **Broadcast Command Generation**: Publishing specific `BroadcastMessageCommand` for the Gateway.
-    - **Story Fan-out**: Fanning out story creation and expiration events to all eligible contacts based on privacy rules.
 - **Internal Modules**: `EventPipeline` (a chain-of-responsibility pattern for event processing).
 - **Interactions**: Consumes `MessageCreatedEvent`; publishes `BroadcastMessageCommand` and `UpdateChatSnapshotCommand`.
 

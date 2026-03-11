@@ -37,15 +37,6 @@ This document details all the features implemented in the **ChatSystem** and pro
     - **Call Join/Leave**: Managing participants in a session.
 - **Media State**: Synchronizing mute/unmute and camera on/off states.
 
-### 1.4 WhatsApp-like Stories Features
-- **Story Creation**: Users can create stories with images, videos, or text-with-background.
-- **Story Expiration**: Stories automatically expire after 24 hours and are soft-deleted.
-- **Privacy Controls**: Granular settings for who can see stories (Everyone, Contacts, Contacts Except, Only Share With).
-- **Engagement**: Users can view, react with emojis, and reply to stories (replies go to private chat).
-- **View Tracking**: Story owners can see exactly who viewed their stories and when.
-- **Archiving**: Users can manually archive their expired stories for personal viewing.
-- **Real-time Feed**: Contacts get real-time WebSocket notifications for new stories, with unviewed stories prioritized in the feed.
-
 ---
 
 ## 2. Core Execution Flows
@@ -87,30 +78,7 @@ sequenceDiagram
     G->>C: WebSocket Push: NewMessage
 ```
 
-### 2.2 Story Creation & Notification Flow
-
-```mermaid
-sequenceDiagram
-    participant C as 👤 Client (Owner)
-    participant A as ☁️ API Service
-    participant R as 🐰 RabbitMQ
-    participant B as 📡 Broadcast Prep Worker
-    participant G as 🌐 Gateway
-    participant O as 👤 Client (Contact)
-
-    C->>A: POST /api/stories (CreateStoryCommand)
-    A->>A: Save Story to MongoDB
-    A->>R: Publish StoryCreatedEvent
-    R->>B: Consume StoryCreatedEvent
-    B->>B: Apply Privacy Filtering
-    loop For Each Eligible Contact
-        B->>R: Publish BroadcastStoryCommand(TargetUserId)
-    end
-    R->>G: Consume BroadcastStoryCommand
-    G->>O: WebSocket Push: new_story
-```
-
-### 2.3 Message ACK Flow (Delivery/Seen)
+### 2.2 Message ACK Flow (Delivery/Seen)
 
 ```mermaid
 sequenceDiagram

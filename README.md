@@ -22,7 +22,6 @@
 ### 🌟 Key Capabilities
 - **Massive Scalability**: Built to handle millions of connections via a distributed Gateway layer.
 - **Real-Time Core**: Sub-millisecond message delivery using optimized WebSocket and Event Bus pipelines.
-- **WhatsApp-like Stories**: Full implementation of stories with 24h expiration, reactions, and granular privacy controls.
 - **Advanced State Management**: Uses **Microsoft Orleans** for ultra-efficient message ACK tracking in large groups.
 - **WebRTC Signaling**: Full support for P2P and Group video/voice calls.
 - **Enterprise Design**: Clean Architecture, CQRS, and Robust Error Handling (DLQs, Retries).
@@ -33,7 +32,6 @@
 For a deep dive into the system, please refer to the following documents:
 - 🏗️ [**Global Architecture**](docs/ARCHITECTURE.md) - Deep analysis of microservices, tech stack, and scalability.
 - ✨ [**Feature Discovery & Flows**](docs/FEATURES.md) - Detailed explanation of messaging, presence, and WebRTC flows.
-- 📱 [**Stories Feature Deep-Dive**](docs/STORIES.md) - Technical specifications for the WhatsApp-like Stories implementation.
 
 ---
 
