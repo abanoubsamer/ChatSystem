@@ -25,7 +25,22 @@ This document details all the features implemented in the **ChatSystem** and pro
 - **Presence System**: Real-time online/offline status tracking.
 - **Typing Indicators**: Real-time notifications when a user is typing (implemented via `UserStateMethodHndler`).
 
-### 1.3 WebRTC Signaling Features
+### 1.3 Stories Features (WhatsApp-like)
+- **Status Updates**: Post text, photo, or video stories that expire after 24 hours.
+- **Story Interaction**:
+    - **Views**: Track who viewed your story and for how long.
+    - **Reactions**: Send emoji reactions to stories.
+    - **Replies**: Reply to stories (converts to a direct message).
+- **Privacy Controls**:
+    - **Everyone**: Visible to all users.
+    - **My Contacts**: Visible only to added contacts.
+    - **My Contacts Except...**: Exclude specific contacts.
+    - **Only Share With...**: Share with a selected whitelist.
+- **Media Management**: Presigned URL uploads for high-performance media handling.
+- **Story Feed**: Aggregated view of recent stories from contacts.
+- **Auto-Cleanup**: Background worker automatically removes expired stories and their media.
+
+### 1.4 WebRTC Signaling Features
 - **P2P Video/Voice Calls**: Direct calls between two users.
 - **Group Calls**: Multi-user calls with a central session.
 - **Signaling Exchange**:
@@ -122,6 +137,36 @@ sequenceDiagram
     end
 
     Note over A,B: P2P Connection Established
+```
+
+### 2.4 Story Lifecycle & Interaction Flow
+
+```mermaid
+sequenceDiagram
+    participant C as 👤 Client
+    participant A as 🔌 API (Stories)
+    participant W as 🔧 Worker
+    participant R as 🐰 RabbitMQ
+    participant B as 📡 Broadcast Prep
+    participant G as 🌐 Gateway
+
+    Note over C,G: Story Creation
+    C->>A: POST /upload-url (Get Presigned URL)
+    A-->>C: S3/Cloud URL + UploadId
+    C->>A: POST / (Create Story with UploadId)
+    A->>R: StoryCreatedEvent
+    R->>B: Fan-out to eligible contacts
+    B->>R: BroadcastStoryCommand (Method: "new_story")
+    R->>G: Deliver to online contacts
+    G-->>C: WebSocket: "new_story"
+
+    Note over C,G: Interaction (View/React)
+    C->>A: POST /{id}/view
+    A->>R: StoryViewedEvent
+    R->>B: Process View
+    B->>R: BroadcastStoryCommand (Method: "story_viewed")
+    R->>G: Deliver to Story Owner
+    G-->>C: WebSocket: "story_viewed"
 ```
 
 ---

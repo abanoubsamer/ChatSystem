@@ -44,6 +44,7 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
     - **ACK Tracking**: Using **Orleans Grains** (`ChatGrain`) to track delivery and seen status using bitmasks for extreme efficiency.
     - Call State Management (Tracking active sessions).
     - Member Management logic.
+    - **Story Lifecycle Management**: A background `StoryCleanupWorker` manages the 24h expiration and media cleanup for Stories.
 - **Tech Stack**: Microsoft Orleans, MassTransit, MongoDB.
 - **Interactions**: Consumes commands from the Gateway and API; publishes events (e.g., `MessageCreatedEvent`) for further processing.
 
