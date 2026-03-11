@@ -21,6 +21,7 @@ using Contracts.Message.Commend;
 using Contracts.Message.Events;
 using Infrastructure.Extension;
 using Infrastructure.Handler.WebSocketHandler.Engress;
+    using Infrastructure.Consumers;
 using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Chat;
 using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Message;
 using Infrastructure.Handler.WebSocketHandler.Ingress;
@@ -127,6 +128,7 @@ namespace Infrastructure
 
                 cfg.AddConsumer<AckDeliveredConsumer>();
                 cfg.AddConsumer<SeenAckMessageConsumer>();
+                cfg.AddConsumer<StoryBroadcastConsumer>();
 
                 cfg.UsingRabbitMq((context, bus) =>
                 {
@@ -156,6 +158,10 @@ namespace Infrastructure
                     bus.ReceiveEndpoint("WebSocket-New-Chat-queue", e =>
                     {
                         e.ConfigureConsumer<NewChatConsumer>(context);
+                    });
+                    bus.ReceiveEndpoint("WebSocket-Story-Broadcast-queue", e =>
+                    {
+                        e.ConfigureConsumer<StoryBroadcastConsumer>(context);
                     });
 
                 });

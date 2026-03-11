@@ -3,6 +3,7 @@ using Application.Abstractions.Services.Publisher;
 using Contracts.Message.Events;
 using Infrastructure.Consumers;
 using Infrastructure.Handler.EventHandler.MessageStored;
+    using Infrastructure.Handler.EventHandler.StoryEvent;
 using Infrastructure.Repositories.GenaricRepo;
 using Infrastructure.Repositories.Implementation.User;
 using Infrastructure.Services.Publisher;
@@ -45,6 +46,11 @@ namespace Infrastructure
             services.AddMassTransit(cfg =>
             {
                 cfg.AddConsumer<EventConsumer<MessageCreatedEvent>>();
+                cfg.AddConsumer<EventConsumer<Contracts.Story.StoryCreatedEvent>>();
+                cfg.AddConsumer<EventConsumer<Contracts.Story.StoryViewedEvent>>();
+                cfg.AddConsumer<EventConsumer<Contracts.Story.StoryReactionEvent>>();
+                cfg.AddConsumer<EventConsumer<Contracts.Story.StoryReplyEvent>>();
+                cfg.AddConsumer<EventConsumer<Contracts.Story.StoryExpiredEvent>>();
 
                 // 2. Configure RabbitMQ
                 cfg.UsingRabbitMq((context, bus) =>
@@ -60,6 +66,30 @@ namespace Infrastructure
                         e.ConfigureConsumer<EventConsumer<MessageCreatedEvent>>(context);
                     });
 
+                    bus.ReceiveEndpoint("Story-Created-queue", e =>
+                    {
+                        e.ConfigureConsumer<EventConsumer<Contracts.Story.StoryCreatedEvent>>(context);
+                    });
+
+                    bus.ReceiveEndpoint("Story-Viewed-queue", e =>
+                    {
+                        e.ConfigureConsumer<EventConsumer<Contracts.Story.StoryViewedEvent>>(context);
+                    });
+
+                    bus.ReceiveEndpoint("Story-Reaction-queue", e =>
+                    {
+                        e.ConfigureConsumer<EventConsumer<Contracts.Story.StoryReactionEvent>>(context);
+                    });
+
+                    bus.ReceiveEndpoint("Story-Reply-queue", e =>
+                    {
+                        e.ConfigureConsumer<EventConsumer<Contracts.Story.StoryReplyEvent>>(context);
+                    });
+
+                    bus.ReceiveEndpoint("Story-Expired-queue", e =>
+                    {
+                        e.ConfigureConsumer<EventConsumer<Contracts.Story.StoryExpiredEvent>>(context);
+                    });
                 });
 
               
@@ -72,6 +102,7 @@ namespace Infrastructure
         {
 
             services.AddMessageStored();
+            services.AddStoryEvents();
             services.AddScoped<IUserRepositoryQuerey, UserRepositoryQuerey>();
 
             services.AddScoped<IMessagePublisher, RabbitMqPublisher>();

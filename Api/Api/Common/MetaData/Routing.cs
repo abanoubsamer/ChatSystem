@@ -18,12 +18,22 @@ namespace Api.Common.MetaData
  
          public static class Story
         {
-            public const string Prefix = Role + "Story/";
-            public const string AddStory = Prefix + "Add";
-            public const string GetMyFriendsStories = Prefix + "GetMyFriendsStories/" + SingelId;
-            public const string GetUserStorys = Prefix + "GetUserStorys/" + SingelId;
-            public const string GetMyStorys = Prefix + "GetMyStorys/" + SingelId;
-            public const string AddStorysView = Prefix + "AddStorysView";
+            public const string Prefix = Role + "stories";
+            public const string UploadUrl = Prefix + "/upload-url";
+            public const string ConfirmUpload = UploadUrl + "/confirm";
+            public const string Create = Prefix;
+            public const string Delete = Prefix + "/{storyId}";
+            public const string Archive = Prefix + "/{storyId}/archive";
+            public const string Me = Prefix + "/me";
+            public const string Feed = Prefix + "/feed";
+            public const string UserStories = Prefix + "/users/{userId}";
+            public const string View = Prefix + "/{storyId}/view";
+            public const string Viewers = Prefix + "/{storyId}/viewers";
+            public const string React = Prefix + "/{storyId}/react";
+            public const string RemoveReaction = React;
+            public const string Reply = Prefix + "/{storyId}/reply";
+            public const string Privacy = Prefix + "/privacy";
+            public const string Archived = Prefix + "/archived";
         }
         public static class User
         {
