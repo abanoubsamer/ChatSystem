@@ -1,26 +1,37 @@
-﻿using Contracts.Enums;
+using Contracts.Enums;
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Attributes;
 
 namespace Domain.Models
 {
     public class Story
     {
-       
-        public ObjectId Id { get; set; }
+        [BsonId]
+        [BsonRepresentation(BsonType.ObjectId)]
+        public string Id { get; set; } = ObjectId.GenerateNewId().ToString();
 
-        public ObjectId UserId { get; set; }
-     
+        [BsonRepresentation(BsonType.ObjectId)]
+        public string UserId { get; set; }
 
-        public string MediaUrl { get; set; }
-        public virtual StoryMediaType MediaType { get; set; }
-        public string ThumbnailUrl { get; set; }
+        public StoryMediaType Type { get; set; }
 
-        public string Caption { get; set; }
+        public string? MediaUrl { get; set; }
+        public string? ThumbnailUrl { get; set; }
+
+        public string? TextContent { get; set; }
+        public string? TextColor { get; set; }
+        public string? BackgroundColor { get; set; }
+        public string? FontStyle { get; set; }
+
+        public int Duration { get; set; } // seconds
+        public StoryPrivacy Privacy { get; set; }
+        public List<string> HiddenFromUserIds { get; set; } = new List<string>();
+        public List<string> AllowedUserIds { get; set; } = new List<string>();
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-      
-        public int ViewsCount { get; set; }
+        public DateTime ExpiresAt { get; set; }
 
-        public virtual List<StoryView> Views { get; set; }
+        public bool IsDeleted { get; set; }
+        public bool IsArchived { get; set; }
     }
 }

@@ -1,7 +1,3 @@
-﻿using Application.Abstractions.Cache;
-using Application.Abstractions.Handler.Ack;
-using Application.Abstractions.Queue;
-using Application.Abstractions.Repositories.Call;
 using Application.Abstractions.Repositories.Chat;
 using Application.Abstractions.Repositories.ChatMember;
 using Application.Abstractions.Repositories.ChatSnapshot;
@@ -17,6 +13,10 @@ using Application.Abstractions.Services.Message;
 using Application.Abstractions.Services.MessageReceipts;
 using Application.Abstractions.Services.Publisher;
 using Application.Abstractions.Services.Watermark;
+using Application.Abstractions.Queue;
+using Application.Abstractions.Cache;
+using Application.Abstractions.Handler.Ack;
+using Application.Abstractions.Repositories.Call;
 using Application.Dtos.Ack;
 using Contracts.User.Query.Groups;
 using Infrastructure.Cache;
@@ -47,6 +47,7 @@ using Infrastructure.Services.Message;
 using Infrastructure.Services.MessageReceipts;
 using Infrastructure.Services.Publisher;
 using Infrastructure.Services.Watermark;
+using Infrastructure.Services;
 using MassTransit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -202,6 +203,7 @@ namespace Infrastructure
             services.AddSingleton<IChatMemberCache, MemoryMemberCache>();
             services.AddScoped<IAckServices, AckServices>();
             services.AddScoped<IMessageReceiptsCommandRepository, MessageReceiptsCommandRepository>();
+            services.AddScoped<Application.Abstractions.Services.IStoryMediaService, StoryMediaService>();
             services.AddScoped(typeof(IGenaricRepository<>), typeof(GenaricRepository<>));
             services.AddSingleton(typeof(IQueue<>), typeof(QueueService<>));
             // ✅ الصح
@@ -234,6 +236,7 @@ namespace Infrastructure
             services.AddSingleton<IAckHandler, DeliveryAckHandler>();
 
             services.AddHostedService<DeliveryAckBatchProcessor>();
+            services.AddHostedService<StoryCleanupWorker>();
 
 
             return services;

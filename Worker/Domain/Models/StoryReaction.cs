@@ -3,7 +3,7 @@ using MongoDB.Bson.Serialization.Attributes;
 
 namespace Domain.Models
 {
-    public class StoryView
+    public class StoryReaction
     {
         [BsonId]
         [BsonRepresentation(BsonType.ObjectId)]
@@ -13,9 +13,9 @@ namespace Domain.Models
         public string StoryId { get; set; }
 
         [BsonRepresentation(BsonType.ObjectId)]
-        public string ViewerId { get; set; }
+        public string UserId { get; set; }
 
-        public DateTime ViewedAt { get; set; } = DateTime.UtcNow;
-        public int WatchedSeconds { get; set; }
+        public string Emoji { get; set; }
+        public DateTime ReactedAt { get; set; } = DateTime.UtcNow;
     }
 }

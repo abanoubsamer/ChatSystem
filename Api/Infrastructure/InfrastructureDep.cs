@@ -1,4 +1,4 @@
-﻿using Application.Abstractions.Repositories.Chat;
+using Application.Abstractions.Repositories.Chat;
 using Application.Abstractions.Repositories.ChatSnapshot;
 using Application.Abstractions.Repositories.Messages;
 using Application.Abstractions.Repositories.User;
@@ -19,6 +19,7 @@ using Infrastructure.Repositories.Implementation.Contact;
 using Infrastructure.Services.Authentication;
 using Infrastructure.Services.Background;
 using Infrastructure.Services.Publisher;
+using Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.SignalR;
@@ -125,6 +126,9 @@ namespace Infrastructure
             services.AddScoped<ISecurityServices, SecurityServices>();
             services.AddSingleton(typeof(IBackgroundQueue<>), typeof(BackgroundQueueService<>));
 
+            services.AddScoped<Application.Abstractions.Services.IStoryService, StoryService>();
+            services.AddScoped<Application.Abstractions.Services.IStoryMediaService, StoryMediaService>();
+            services.AddScoped<Application.Abstractions.Services.IStoryNotificationService, StoryNotificationService>();
 
             return services;
         }
