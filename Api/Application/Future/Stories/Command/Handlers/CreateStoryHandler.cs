@@ -8,9 +8,10 @@ using MediatR;
 using MongoDB.Driver;
 using MongoDB.Bson;
 
-namespace Application.Future.Stories.Command.Handlers
+namespace Application.Future.Stories.Command.Handlers 
 {
-    public class CreateStoryHandler : IRequestHandler<CreateStoryCommand, Response<StoryDto>>
+    public class CreateStoryHandler : ResponseHandler,
+        IRequestHandler<CreateStoryCommand, Response<StoryDto>>
     {
         private readonly IGenaricRepository<Story> _storyRepo;
         private readonly IGenaricRepository<UserContact> _contactRepo;
@@ -50,12 +51,9 @@ namespace Application.Future.Stories.Command.Handlers
                 ExpiresAt = DateTime.UtcNow.AddHours(24)
             };
 
-            if (request.Request.Type != Contracts.Enums.StoryMediaType.Text && !string.IsNullOrEmpty(request.Request.UploadId))
-            {
-                story.MediaUrl = _mediaService.GetMediaUrl(request.Request.UploadId, request.Request.Type);
-                story.ThumbnailUrl = await _mediaService.GenerateThumbnailUrlAsync(story.MediaUrl);
-            }
-
+            if(request.Request.uploadUrlDto != null)
+             MappingMediaStory(story, request.Request.uploadUrlDto);
+         
             await _storyRepo.InsertAsync(story);
 
             var userObjectId = ObjectId.Parse(request.UserId);
@@ -65,7 +63,20 @@ namespace Application.Future.Stories.Command.Handlers
             await _notificationService.NotifyStoryCreatedAsync(story, contactIds);
 
             var dto = await _storyService.MapToDtoAsync(story, request.UserId);
-            return new Response<StoryDto>(dto);
+            return   Success(dto);
+        }
+
+
+        public void MappingMediaStory(Story story,  UploadUrlDto uploaDto)
+        {
+            story.MediaUrl = uploaDto.FileUrl;
+            story.Duration = uploaDto.Duration;
+            story.FileName  = uploaDto.FileName;
+            story.FileSize = uploaDto.FileSize;
+            story.Height = uploaDto.Height;
+            story.Width = uploaDto.Width;
+            story.MimeType = uploaDto.MimeType;
+            story.ThumbnailUrl = uploaDto.ThumbnailUrl;
         }
     }
 }

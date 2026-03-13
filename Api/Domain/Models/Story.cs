@@ -15,15 +15,23 @@ namespace Domain.Models
 
         public StoryMediaType Type { get; set; }
 
+        //Uploud Data
         public string? MediaUrl { get; set; }
         public string? ThumbnailUrl { get; set; }
+        public string? FileName { get; set; }
+        public long? FileSize { get; set; }
+        public string? MimeType { get; set; }
+        public float? Duration { get; set; } 
+        public int? Width { get; set; }
+        public int? Height { get; set; }
+
+
 
         public string? TextContent { get; set; }
         public string? TextColor { get; set; }
         public string? BackgroundColor { get; set; }
         public string? FontStyle { get; set; }
 
-        public int Duration { get; set; } // seconds
         public StoryPrivacy Privacy { get; set; }
         public List<string> HiddenFromUserIds { get; set; } = new List<string>();
         public List<string> AllowedUserIds { get; set; } = new List<string>();

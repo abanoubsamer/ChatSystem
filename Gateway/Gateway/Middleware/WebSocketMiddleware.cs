@@ -33,9 +33,11 @@ namespace AppGateway.Middleware
                 }
 
                 var socket = await context.WebSockets.AcceptWebSocketAsync();
+                
                 var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
 
-                using var scope = _serviceProvider.CreateScope();
+                await using var scope = _serviceProvider.CreateAsyncScope();
+               
                 var gateway = scope.ServiceProvider.GetRequiredService<IGatewayIngressHandler>();
 
                 await gateway.HandleAsync(userId, socket, context.RequestAborted);

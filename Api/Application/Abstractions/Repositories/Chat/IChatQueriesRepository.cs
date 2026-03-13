@@ -14,7 +14,7 @@ namespace Application.Abstractions.Repositories.Chat
     {
         public Task<List<string>> GetUserChatsIdsWithUser(string userId);
         public Task<GetChatInfoResponse> GetChatInfo(string chatId);
-
+        public  Task<Domain.Models.Chat> GetPrivateChatBetweenUsersMongo(string userId1, string userId2);
         //Task<Chat?> GetChatByIdAsync(ObjectId chatId);
         //Task<List<Chat>> GetUserChatsAsync(string userId, int skip = 0, int limit = 50);
         //Task<List<ChatMember>> GetChatMembersAsync(ObjectId chatId);

@@ -13,7 +13,7 @@ namespace Application.Dtos.Stories
         public string? TextColor { get; set; }
         public string? BackgroundColor { get; set; }
         public string? FontStyle { get; set; }
-        public int Duration { get; set; }
+        public float? Duration { get; set; }
         public StoryPrivacy Privacy { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime ExpiresAt { get; set; }

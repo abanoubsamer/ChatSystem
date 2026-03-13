@@ -1,11 +1,12 @@
 ﻿using Application.Abstractions.Repositories.Chat;
+using Application.Abstractions.Repositories.GenaricRepo;
 using Application.Dtos.Basic;
 using Application.Future.Chat.Querey.Response;
+using Contracts.Enums;
 using Domain.Models;
 using Domain.Models.Snapshot;
 using Domain.Models.State;
 using Domain.Models.State.Chat;
-using Application.Abstractions.Repositories.GenaricRepo;
 using Infrastructure.Repositories.GenaricRepo;
 using Microsoft.Extensions.Caching.Memory;
 using MongoDB.Bson;
@@ -61,6 +62,70 @@ namespace Infrastructure.Repositories.Implementation.Chats
            );
 
             return chatIds;
+        }
+
+
+
+
+        public async Task<Chat?> GetPrivateChatBetweenUsersMongo(string userId1, string userId2)
+        {
+            var objId1 = ObjectId.Parse(userId1);
+            var objId2 = ObjectId.Parse(userId2);
+
+            // نجيب الـ ChatIds اللي العضوين موجودين فيها معاً
+            var filterBuilder = Builders<ChatMember>.Filter;
+            var filter = filterBuilder.In(x => x.UserId, new[] { objId1, objId2 });
+
+            try
+            {
+                // نجمع على MongoDB بحيث يكون ChatId فيه العضوين الاتنين فقط
+                var chatIds = await _MemberRepo.GetMongoCollection().Aggregate()
+                    .Match(filter)
+                    .Group(
+                        x => x.ChatId,
+                        g => new
+                        {
+                            ChatId = g.Key,
+                            UserCount = g.Count()
+                        }
+                    )
+                    .Match(g => g.UserCount == 2)
+                    .Project(g => g.ChatId)
+                    .ToListAsync();
+
+                if (!chatIds.Any())
+                    return null;
+
+                var privateChat = await _repo.GetMongoCollection()
+                  .Find(x => chatIds.Contains(x.Id) && x.Type == ChatType.Private)
+                  .Project(c => new Chat
+                  {
+                      Id = c.Id,
+                      Type = c.Type,
+                      Title = c.Title ?? "",
+                      MemberCount = c.MemberCount,
+                      Description = c.Description,
+                      CreatedById = c.CreatedById,
+                      PhotoUrl = c.PhotoUrl,
+                      CreatedAt = c.CreatedAt,
+                      UpdatedAt = c.UpdatedAt,
+                      IsDeleted = c.IsDeleted,
+                      WatermarkVersion = c.WatermarkVersion,
+                      MinLastMsgIdDelivery = c.MinLastMsgIdDelivery ?? ObjectId.Empty,
+                      MinDeliveryOwnerId = c.MinDeliveryOwnerId ?? ObjectId.Empty,
+                      MinLastMsgIdSeen = c.MinLastMsgIdSeen ?? ObjectId.Empty,
+                      MinSeenOwnerId = c.MinSeenOwnerId ?? ObjectId.Empty
+                  })
+                  .FirstOrDefaultAsync();
+
+                return privateChat;
+            }
+            catch (Exception ex) { 
+               
+                
+                return null;
+            }
+      
         }
     }
 }

@@ -11,7 +11,8 @@ using MongoDB.Bson;
 
 namespace Application.Future.Stories.Query.Handlers
 {
-    public class GetStoriesFeedHandler : IRequestHandler<GetStoriesFeedQuery, Response<List<ContactStoriesDto>>>
+    public class GetStoriesFeedHandler : ResponseHandler,
+        IRequestHandler<GetStoriesFeedQuery, Response<List<ContactStoriesDto>>>
     {
         private readonly IGenaricRepository<Story> _storyRepo;
         private readonly IGenaricRepository<UserContact> _contactRepo;
@@ -32,7 +33,9 @@ namespace Application.Future.Stories.Query.Handlers
 
         public async Task<Response<List<ContactStoriesDto>>> Handle(GetStoriesFeedQuery request, CancellationToken cancellationToken)
         {
-            var userObjectId = ObjectId.Parse(request.UserId);
+            if (!ObjectId.TryParse(request.UserId, out var userObjectId))
+                return BadRequest<List<ContactStoriesDto>>("UserId Is Invalid");
+
             var myContacts = await _contactRepo.FindMoreAsync(c => c.UserId == userObjectId);
             var contactIds = myContacts.Select(c => c.ContactUserId.ToString()).ToList();
 
@@ -54,7 +57,7 @@ namespace Application.Future.Stories.Query.Handlers
 
                 if (stories.Any())
                 {
-                    var owner = await _userRepo.GetByIdAsync(group.Key);
+                    var owner = await _userRepo.FindOneAsync(x=>x.Id == ObjectId.Parse(group.Key));
                     feed.Add(new ContactStoriesDto
                     {
                         UserId = owner.Id.ToString(),
@@ -71,8 +74,9 @@ namespace Application.Future.Stories.Query.Handlers
                 .OrderByDescending(f => f.HasUnviewed)
                 .ThenByDescending(f => f.LastStoryAt)
                 .ToList();
+            
 
-            return new Response<List<ContactStoriesDto>>(sortedFeed);
+            return Success(sortedFeed);
         }
     }
 }

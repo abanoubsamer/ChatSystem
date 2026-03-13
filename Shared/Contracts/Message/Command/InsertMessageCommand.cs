@@ -13,6 +13,8 @@ namespace Contracts.Message.Commend
         public string MessageId { get; set; }
         public string? SessionId { get; set; }
         public string SenderId { get; set; }
+        public ReplyType? replyType { get; set; }
+        public string? replyContact { get; set; }
         public string? SenderName { get; set; }
         public string? clientMessageId { get; set; }
         

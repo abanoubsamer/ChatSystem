@@ -1,12 +1,14 @@
 ﻿using Application.Dtos.User;
 using Core.Basic;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
 namespace Api.Basic
 {
+    
     [ApiController]
     public class BasicController : ControllerBase
     {
@@ -19,6 +21,8 @@ namespace Api.Basic
         [NonAction]
         public UserTokenDto GetToken()
         {
+            if (User.FindFirstValue(ClaimTypes.NameIdentifier) == null)
+                    throw new Exception("Unauthorized");
             return new UserTokenDto
             {
                 UserId = User.FindFirstValue(ClaimTypes.NameIdentifier),

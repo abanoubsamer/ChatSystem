@@ -4,45 +4,41 @@ using Application.Abstractions.Session;
 using Contracts.User.Query.Groups;
 using MassTransit;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Net.WebSockets;
 
 namespace Infrastructure.Services.Session
 {
-    public class SessionServices: ISessionServices
+    public sealed class SessionServices : ISessionServices
     {
         private readonly IConnectionServices _connectionManager;
-        private readonly IRequestClient<GetUserGroups> _requestClient;
+        private readonly IServiceProvider _serviceProvider;  // ✅ Changed from IRequestClient
         private readonly IMemoryCache _cache;
         private readonly ILogger<SessionServices> _logger;
 
         public SessionServices(
            IConnectionServices connectionManager,
-           IRequestClient<GetUserGroups> requestClient,
+           IServiceProvider serviceProvider,  // ✅ Inject IServiceProvider
            IMemoryCache cache,
            ILogger<SessionServices> logger)
-            {
-                _connectionManager = connectionManager;
-                _requestClient = requestClient;
-                _cache = cache;
-                _logger = logger;
-            }
-
-
+        {
+            _connectionManager = connectionManager;
+            _serviceProvider = serviceProvider;
+            _cache = cache;
+            _logger = logger;
+        }
 
         public async Task OnUserConnectedAsync(string userId, WebSocket socket)
         {
             _logger.LogInformation("User {UserId} connected", userId);
 
-
             var isFirstConnection = _connectionManager.AddConnection(userId, socket);
 
             if (!isFirstConnection) return;
 
-
             var groups = await GetUserGroups(userId);
 
-           
             _connectionManager.RegisterInGroups(userId, groups);
         }
 
@@ -60,10 +56,14 @@ namespace Infrastructure.Services.Session
             if (_cache.TryGetValue($"user:{userId}:groups", out List<string> cached))
                 return cached;
 
-            var response = await _requestClient.GetResponse<UserGroupsResponse>(
+            // ✅ Create scope to get MassTransit client
+            using var scope = _serviceProvider.CreateScope();
+            var requestClient = scope.ServiceProvider.GetRequiredService<IRequestClient<GetUserGroups>>();
+
+            var response = await requestClient.GetResponse<UserGroupsResponse>(
                 new GetUserGroups { UserId = userId },
                 CancellationToken.None,
-                RequestTimeout.After(s:5)
+                RequestTimeout.After(s: 5)
             );
 
             var groups = response.Message.Groups;
@@ -72,7 +72,5 @@ namespace Infrastructure.Services.Session
 
             return groups;
         }
-
-
     }
 }

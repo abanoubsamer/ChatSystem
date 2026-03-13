@@ -1,26 +1,40 @@
 ﻿using Application.Abstractions.Publisher;
 using Domain.Models;
 using MassTransit;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Infrastructure.Services.Publisher
 {
-    public class RabbitMqPublisher : IMessagePublisher
+    public sealed class RabbitMqPublisher : IMessagePublisher
     {
-        private readonly IPublishEndpoint _publishEndpoint;
+        private readonly IServiceProvider _serviceProvider;
+        private readonly ILogger<RabbitMqPublisher> _logger;
 
-        public RabbitMqPublisher(IPublishEndpoint publishEndpoint)
+        public RabbitMqPublisher(
+            IServiceProvider serviceProvider,
+            ILogger<RabbitMqPublisher> logger)
         {
-            _publishEndpoint = publishEndpoint;
+            _serviceProvider = serviceProvider;
+            _logger = logger;
         }
 
         public async Task PublishAsync<T>(T message)
         {
-            await _publishEndpoint.Publish(message);
+            using var scope = _serviceProvider.CreateScope();
+            var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
+
+            await publishEndpoint.Publish(message);
+            _logger.LogDebug("Published {MessageType}", typeof(T).Name);
         }
 
-        public async Task PublishBatchAsync(IEnumerable<object> events) 
+        public async Task PublishBatchAsync(IEnumerable<object> events)
         {
-            await _publishEndpoint.PublishBatch(events);
+            using var scope = _serviceProvider.CreateScope();
+            var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
+
+            await publishEndpoint.PublishBatch(events);
+            _logger.LogDebug("Published batch of {Count} events", events.Count());
         }
     }
 }

@@ -1,46 +1,65 @@
+using Application.Abstractions.Repositories.Chat;
 using Application.Abstractions.Repositories.GenaricRepo;
 using Application.Abstractions.Services;
+using Application.Abstractions.Services.Publisher;
 using Application.Dtos.Stories;
 using Application.Future.Stories.Command.Models;
+using Contracts.Enums;
+using Contracts.Message.Commend;
 using Core.Basic;
 using Domain.Models;
 using MediatR;
+using MongoDB.Bson;
 
 namespace Application.Future.Stories.Command.Handlers
 {
-    public class StoryInteractionHandlers :
+    public class StoryInteractionHandlers : ResponseHandler,
         IRequestHandler<MarkStoryViewedCommand, Response<bool>>,
         IRequestHandler<ReactToStoryCommand, Response<StoryReactionDto>>,
         IRequestHandler<RemoveReactionCommand, Response<bool>>,
-        IRequestHandler<ReplyToStoryCommand, Response<StoryReplyDto>>
+        IRequestHandler<ReplyToStoryCommand, Response<string>>
     {
         private readonly IGenaricRepository<Story> _storyRepo;
         private readonly IGenaricRepository<StoryView> _viewRepo;
+        private readonly IGenaricRepository<Message> _msgRepo;
+        private readonly IChatQueriesRepository _ChatRepo ;
+
         private readonly IGenaricRepository<StoryReaction> _reactionRepo;
         private readonly IGenaricRepository<StoryReply> _replyRepo;
         private readonly IGenaricRepository<AppUser> _userRepo;
         private readonly IStoryNotificationService _notificationService;
+        private readonly IMessagePublisher _publisher;
 
         public StoryInteractionHandlers(
             IGenaricRepository<Story> storyRepo,
             IGenaricRepository<StoryView> viewRepo,
+            IGenaricRepository<Message> msgRepo,
             IGenaricRepository<StoryReaction> reactionRepo,
             IGenaricRepository<StoryReply> replyRepo,
             IGenaricRepository<AppUser> userRepo,
+            IChatQueriesRepository ChatRepo,
+            IMessagePublisher publisher,
+
             IStoryNotificationService notificationService)
         {
+            _publisher = publisher;
+            _ChatRepo = ChatRepo;
             _storyRepo = storyRepo;
             _viewRepo = viewRepo;
             _reactionRepo = reactionRepo;
             _replyRepo = replyRepo;
+            _msgRepo = msgRepo;
             _userRepo = userRepo;
             _notificationService = notificationService;
         }
 
         public async Task<Response<bool>> Handle(MarkStoryViewedCommand request, CancellationToken cancellationToken)
         {
-            var story = await _storyRepo.GetByIdAsync(request.StoryId);
-            if (story == null) return new Response<bool>("Story not found");
+            var story = await _storyRepo.FindOneAsync(x=>x.Id == request.StoryId);
+            
+            if (story.UserId == request.ViewerId) return Success(false);
+           
+            if (story == null) return NotFound<bool>("Story not found");
 
             var existingView = await _viewRepo.FindOneAsync(v => v.StoryId == request.StoryId && v.ViewerId == request.ViewerId);
             if (existingView == null)
@@ -56,15 +75,16 @@ namespace Application.Future.Stories.Command.Handlers
                 await _notificationService.NotifyStoryViewedAsync(request.StoryId, request.ViewerId, story.UserId);
             }
 
-            return new Response<bool>(true);
+            return Success(true);
         }
 
         public async Task<Response<StoryReactionDto>> Handle(ReactToStoryCommand request, CancellationToken cancellationToken)
         {
-            var story = await _storyRepo.GetByIdAsync(request.StoryId);
-            if (story == null) return new Response<StoryReactionDto>("Story not found");
+            var story = await _storyRepo.FindOneAsync(x=> x.Id == request.StoryId);
+            if (story == null) return NotFound<StoryReactionDto>("Story not found");
 
-            var user = await _userRepo.GetByIdAsync(request.UserId);
+
+            var user = await _userRepo.FindOneAsync(x => x.Id == ObjectId.Parse(request.UserId));
 
             await _reactionRepo.DeleteManyAsync(r => r.StoryId == request.StoryId && r.UserId == request.UserId);
 
@@ -77,9 +97,10 @@ namespace Application.Future.Stories.Command.Handlers
             };
             await _reactionRepo.InsertAsync(reaction);
 
+         
             await _notificationService.NotifyStoryReactionAsync(request.StoryId, request.UserId, story.UserId, request.Emoji);
 
-            return new Response<StoryReactionDto>(new StoryReactionDto
+            var result = new StoryReactionDto
             {
                 ReactionId = reaction.Id,
                 StoryId = reaction.StoryId,
@@ -87,44 +108,44 @@ namespace Application.Future.Stories.Command.Handlers
                 UserName = user.UserName,
                 Emoji = reaction.Emoji,
                 ReactedAt = reaction.ReactedAt
-            });
+            };
+            return Success(result);
         }
 
         public async Task<Response<bool>> Handle(RemoveReactionCommand request, CancellationToken cancellationToken)
         {
             await _reactionRepo.DeleteManyAsync(r => r.StoryId == request.StoryId && r.UserId == request.UserId);
-            return new Response<bool>(true);
+            return Success(true);
         }
 
-        public async Task<Response<StoryReplyDto>> Handle(ReplyToStoryCommand request, CancellationToken cancellationToken)
+        public async Task<Response<string>> Handle(ReplyToStoryCommand request, CancellationToken cancellationToken)
         {
-            var story = await _storyRepo.GetByIdAsync(request.StoryId);
-            if (story == null) return new Response<StoryReplyDto>("Story not found");
+            var story = await _storyRepo.FindOneAsync(x => x.Id == request.StoryId);
+            if (story == null) return NotFound<string>("Story not found");
 
-            var user = await _userRepo.GetByIdAsync(request.SenderId);
+            var user = await _userRepo.FindOneAsync(x=>x.Id == ObjectId.Parse(request.SenderId));
 
-            var reply = new StoryReply
+            var chat = await _ChatRepo.GetPrivateChatBetweenUsersMongo(story.UserId, request.SenderId);
+
+            if (chat == null) return BadRequest<string>("UnAuthorze");
+           
+
+            await _publisher.PublishAsync(new InsertMessageCommand
             {
-                StoryId = request.StoryId,
+                ChatId = chat.Id.ToString(),
+                Content = request.Message,
+                replyContact = story.TextContent,
+                ReplyToMessage = request.StoryId,
+                MessageType = MessageType.Text,
                 SenderId = request.SenderId,
-                Message = request.Message,
-                SentAt = DateTime.UtcNow,
-                IsRead = false
-            };
-            await _replyRepo.InsertAsync(reply);
+                replyType = ReplyType.Story,
+
+            });
 
             await _notificationService.NotifyStoryReplyAsync(request.StoryId, request.SenderId, story.UserId, request.Message);
 
-            return new Response<StoryReplyDto>(new StoryReplyDto
-            {
-                ReplyId = reply.Id,
-                StoryId = reply.StoryId,
-                SenderId = reply.SenderId,
-                SenderName = user.UserName,
-                SenderAvatar = user.AvatarUrl,
-                Message = reply.Message,
-                SentAt = reply.SentAt
-            });
+           
+            return Success("Sucess");
         }
     }
 }

@@ -16,11 +16,16 @@ namespace Domain.Models
        
         public string SenderId { get; set; }
         public string SenderName { get; set; }
-        
+       
+        public string? replyContact { get; set; }
+        public ReplyType? replyType { get; set; }
         public string? ReplyToMessageId { get; set; }
+       
         public string? ForwardedFromMessageId { get; set; }
 
+        
         public string Content { get; set; }
+        
         public MessageType MessageType { get; set; } = MessageType.Text;
 
         public DateTime SentAt { get; set; } = DateTime.UtcNow;

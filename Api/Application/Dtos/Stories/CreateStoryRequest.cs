@@ -5,7 +5,7 @@ namespace Application.Dtos.Stories
     public class CreateStoryRequest
     {
         public StoryMediaType Type { get; set; }
-        public string? UploadId { get; set; }
+        public UploadUrlDto? uploadUrlDto { get; set; }
         public string? TextContent { get; set; }
         public string? TextColor { get; set; }
         public string? BackgroundColor { get; set; }

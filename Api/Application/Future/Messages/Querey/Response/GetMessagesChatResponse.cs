@@ -15,9 +15,10 @@ namespace Application.Future.Messages.Querey.Response
         public string MessageId { get; set; }
         public string SenderId { get; set; }
         public string SenderName { get; set; }
+        public ReplyType? replyType { get; set; }
+        public string? replyContact { get; set; }
         public string? ReplyToMessageId { get; set; }
         public string? ForwardedFromMessageId { get; set; }
-
         public MessageType MessageType { get; set; }
         public string Content { get; set; }
         public DateTime SentAt { get; set; }

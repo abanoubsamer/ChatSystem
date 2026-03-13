@@ -3,12 +3,18 @@ using Application.Abstractions.Auth;
 using Application.Abstractions.Broadcast;
 using Application.Abstractions.Broadcast.Abstraction;
 using Application.Abstractions.CallSessionStore;
+using Application.Abstractions.Compression;
 using Application.Abstractions.Connection;
 using Application.Abstractions.Connection.Abstraction;
+using Application.Abstractions.Handler.Dispatcher;
 using Application.Abstractions.Handler.GatewayWebSocket.Ingress;
 using Application.Abstractions.Handler.Methods;
+using Application.Abstractions.Metrics;
+using Application.Abstractions.PipeLine;
+using Application.Abstractions.Processor;
 using Application.Abstractions.Publisher;
 using Application.Abstractions.Queue;
+using Application.Abstractions.RateLimiting;
 using Application.Abstractions.Repositories.Chat;
 using Application.Abstractions.Session;
 using Application.Handlers.Call;
@@ -17,14 +23,17 @@ using Application.Handlers.Message;
 using Application.Handlers.Snapshots;
 using Application.Handlers.State;
 using Application.Handlers.Sync;
-using Contracts.Message.Commend;
-using Contracts.Message.Events;
-using Infrastructure.Extension;
+using Infrastructure.Compression;
+using Infrastructure.Consumers;
+using Infrastructure.Handler.WebSocketHandler.Dispatcher;
 using Infrastructure.Handler.WebSocketHandler.Engress;
-    using Infrastructure.Consumers;
 using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Chat;
 using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Message;
 using Infrastructure.Handler.WebSocketHandler.Ingress;
+using Infrastructure.Metrics;
+using Infrastructure.PipeLine;
+using Infrastructure.Processor;
+using Infrastructure.RateLimiting;
 using Infrastructure.Repositories.GenaricRepo;
 using Infrastructure.Repositories.Implementation.Chats;
 using Infrastructure.Services.Auth;
@@ -59,11 +68,9 @@ namespace Infrastructure
             var mongoSettings = configuration.GetSection("MongoSettings");
             var connectionString = mongoSettings["ConnectionString"];
             var databaseName = mongoSettings["DatabaseName"];
-
             services.AddSingleton<IMongoClient>(new MongoClient(connectionString));
             services.AddSingleton(sp => sp.GetRequiredService<IMongoClient>()
             .GetDatabase(databaseName));
-
             return services;
 
         }
@@ -177,21 +184,22 @@ namespace Infrastructure
             // Caching
             services.AddMemoryCache();
             services.AddHttpContextAccessor();
-            services.AddScoped<IAuthServices, AuthServices>();
 
-            // Generic Repositories and Queue Services
-            services.AddScoped(typeof(IGenaricRepository<>), typeof(GenaricRepository<>));
+            // Generic Repositories and Queue Services → Singleton
+            services.AddSingleton(typeof(IGenaricRepository<>), typeof(GenaricRepository<>));
             services.AddSingleton(typeof(IQueue<>), typeof(QueueService<>));
 
-            // Publisher
-            services.AddScoped<IMessagePublisher, RabbitMqPublisher>();
+            // Publisher → Singleton ✅
+            services.AddSingleton<IMessagePublisher, RabbitMqPublisher>();
 
-            // Repositories
-            services.AddTransient<IChatQueriesRepository, ChatQueriesRepository>();
-            // Session Services
-            services.AddTransient<ISessionServices, SessionServices>();
+            // Repositories → Singleton ✅
+            services.AddSingleton<IChatQueriesRepository, ChatQueriesRepository>();
+
+            // Session Services → Singleton ✅
+            services.AddSingleton<ISessionServices, SessionServices>();
             services.AddSingleton<ICallSessionStore, InMemorySessionStore>();
-            // Connection and Broadcast Managers
+
+            // Connection and Broadcast Managers → Singleton ✅
             services.AddSingleton<IConnectionStoreManager, ConnectionStoreManager>();
             services.AddSingleton<IFanOutResolverManager, FanOutResolverManager>();
             services.AddSingleton<IBroadcastManager, BroadcastManager>();
@@ -200,31 +208,45 @@ namespace Infrastructure
             services.AddSingleton<IGroupManager, GroupManager>();
             services.AddSingleton<IPresenceRepository, InMemoryPresenceRepository>();
             services.AddSingleton<IPresenceService, PresenceService>();
-
-            // Gateway Ingress Handlers
-            services.AddScoped<IGatewayIngressHandler, GatewayIngressHandler>();
             services.AddSingleton<IRingTimeoutService, RingTimeoutService>();
 
-            // Method Handlers
+            // Auth → Singleton ✅ (if thread-safe)
+            services.AddSingleton<IAuthServices, AuthServices>();
 
-            services.AddScoped<IMethodHandler, NewMessageMethodHandler>();
-            services.AddScoped<IMethodHandler, HeartbeatMethodHandler>();
-            services.AddScoped<IMethodHandler, MessageReceivedAckMethodHandler>();
-            services.AddScoped<IMethodHandler, SyncUserAckMethodHanlder>();
-            services.AddScoped<IMethodHandler, ReceivedSnapAckBatchMethodHandler>();
-            services.AddScoped<IMethodHandler, MessageSeenAckMethodHandler>();
-            services.AddScoped<IMethodHandler, UserStateMethodHndler>();
-            services.AddScoped<IMethodHandler, GroupStateMethodHndler>();
-            services.AddScoped<IMethodHandler, ReceivedAckBatchMethodHandler>();
-            services.AddScoped<IMethodHandler, OfferMethodHandler>();
-            services.AddScoped<IMethodHandler, AnswerMethodHandler>();
-            services.AddScoped<IMethodHandler, IceCandidateMethodHandler>();
-            services.AddScoped<IMethodHandler, JoinCallMethodHandler>();
-            services.AddScoped<IMethodHandler, GroupSignalMethodHandler>();
-            services.AddScoped<IMethodHandler, LeaveCallHandler>();
-            services.AddScoped<IMethodHandler, MediaStateHandler>();
-            services.AddScoped<IMethodHandler, CreateGroupCallHandler>();
+            // Metrics & Rate Limiting → Singleton ✅
+            services.AddSingleton<IMetricsCollector, OpenTelemetryMetricsCollector>();
+            services.AddSingleton<IRateLimiter, TokenBucketRateLimiter>();
+            services.AddSingleton<IMessageCompressor, GzipMessageCompressor>();
 
+            // Pipeline & Processing → Singleton ✅
+            services.AddSingleton<IMessagePipeFactory, WebSocketMessagePipeFactory>();
+            services.AddSingleton<IMessageProcessor, DefaultMessageProcessor>();
+
+            // Method Handlers → ALL SINGLETON ✅
+            services.AddSingleton<IMethodHandler, NewMessageMethodHandler>();
+            services.AddSingleton<IMethodHandler, HeartbeatMethodHandler>();
+            services.AddSingleton<IMethodHandler, MessageReceivedAckMethodHandler>();
+            services.AddSingleton<IMethodHandler, SyncUserAckMethodHanlder>();
+            services.AddSingleton<IMethodHandler, ReceivedSnapAckBatchMethodHandler>();
+            services.AddSingleton<IMethodHandler, MessageSeenAckMethodHandler>();
+            services.AddSingleton<IMethodHandler, UserStateMethodHndler>();
+            services.AddSingleton<IMethodHandler, GroupStateMethodHndler>();
+            services.AddSingleton<IMethodHandler, ReceivedAckBatchMethodHandler>();
+            services.AddSingleton<IMethodHandler, OfferMethodHandler>();
+            services.AddSingleton<IMethodHandler, AnswerMethodHandler>();
+            services.AddSingleton<IMethodHandler, IceCandidateMethodHandler>();
+            services.AddSingleton<IMethodHandler, JoinCallMethodHandler>();
+            services.AddSingleton<IMethodHandler, GroupSignalMethodHandler>();
+            services.AddSingleton<IMethodHandler, LeaveCallHandler>();
+            services.AddSingleton<IMethodHandler, MediaStateHandler>();
+            services.AddSingleton<IMethodHandler, CreateGroupCallHandler>();
+
+            // Dispatcher → Singleton ✅
+            services.AddSingleton<IMethodDispatcher, MethodDispatcher>();
+
+            // Gateway → Scoped (WebSocket per connection)
+            services.AddScoped<IConnectionManager, WebSocketConnectionManager>();
+            services.AddScoped<IGatewayIngressHandler, GatewayIngressHandler>();
 
             // Background Services
             services.AddHostedService<BroadcastMessageBackground>();

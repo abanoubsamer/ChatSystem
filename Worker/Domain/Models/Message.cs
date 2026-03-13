@@ -12,7 +12,11 @@ namespace Domain.Models
         public string ChatId { get; set; }
         public string SenderId { get; set; }
         public string? SessionId { get; set; }
+        public string? replyContact { get; set; }
         public string? SenderName { get; set; }
+       
+        [BsonIgnoreIfNull]
+        public ReplyType? replyType { get; set; }
 
         [BsonIgnoreIfNull]
         public string? ReplyToMessageId { get; set; }

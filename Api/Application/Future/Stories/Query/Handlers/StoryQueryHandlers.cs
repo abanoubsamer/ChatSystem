@@ -10,7 +10,7 @@ using MongoDB.Driver;
 
 namespace Application.Future.Stories.Query.Handlers
 {
-    public class StoryQueryHandlers :
+    public class StoryQueryHandlers : ResponseHandler,
         IRequestHandler<GetMyStoriesQuery, Response<List<StoryDto>>>,
         IRequestHandler<GetContactStoriesQuery, Response<ContactStoriesDto>>,
         IRequestHandler<GetStoryViewersQuery, Response<StoryViewersDto>>,
@@ -45,13 +45,13 @@ namespace Application.Future.Stories.Query.Handlers
             {
                 dtos.Add(await _storyService.MapToDtoAsync(s, request.UserId));
             }
-            return new Response<List<StoryDto>>(dtos);
+            return  Success(dtos);
         }
 
         public async Task<Response<ContactStoriesDto>> Handle(GetContactStoriesQuery request, CancellationToken cancellationToken)
         {
             var owner = await _userRepo.GetByIdAsync(request.ContactId);
-            if (owner == null) return new Response<ContactStoriesDto>("User not found");
+            if (owner == null) Success("User not found");
 
             var stories = await _storyRepo.FindMoreAsync(s => s.UserId == request.ContactId && s.ExpiresAt > DateTime.UtcNow && !s.IsDeleted);
 
@@ -64,7 +64,7 @@ namespace Application.Future.Stories.Query.Handlers
                 }
             }
 
-            return new Response<ContactStoriesDto>(new ContactStoriesDto
+            var result = new ContactStoriesDto
             {
                 UserId = owner.Id.ToString(),
                 UserName = owner.UserName,
@@ -72,7 +72,8 @@ namespace Application.Future.Stories.Query.Handlers
                 Stories = filteredStories,
                 HasUnviewed = filteredStories.Any(s => !s.IsViewed),
                 LastStoryAt = filteredStories.Any() ? filteredStories.Max(s => s.CreatedAt) : DateTime.MinValue
-            });
+            };
+            return Success(result);
         }
 
         public async Task<Response<StoryViewersDto>> Handle(GetStoryViewersQuery request, CancellationToken cancellationToken)
@@ -95,23 +96,31 @@ namespace Application.Future.Stories.Query.Handlers
                 });
             }
 
-            return new Response<StoryViewersDto>(new StoryViewersDto
+            var result = new StoryViewersDto
             {
                 StoryId = request.StoryId,
                 TotalViews = viewers.Count,
                 Viewers = viewers
-            });
+            };
+
+
+            return Success(result);
         }
 
         public async Task<Response<UpdatePrivacySettingsRequest>> Handle(GetPrivacySettingsQuery request, CancellationToken cancellationToken)
         {
-            var lastStory = (await _storyRepo.FindMoreAsync(s => s.UserId == request.UserId)).OrderByDescending(s => s.CreatedAt).FirstOrDefault();
-            return new Response<UpdatePrivacySettingsRequest>(new UpdatePrivacySettingsRequest
+            var lastStory = (await _storyRepo.FindMoreAsync(s => s.UserId == request.UserId))
+                .OrderByDescending(s => s.CreatedAt)
+                .FirstOrDefault();
+
+            var result  = new UpdatePrivacySettingsRequest
             {
                 Privacy = lastStory?.Privacy ?? StoryPrivacy.Contacts,
                 HiddenFromUserIds = lastStory?.HiddenFromUserIds ?? new List<string>(),
                 AllowedUserIds = lastStory?.AllowedUserIds ?? new List<string>()
-            });
+            };
+         
+            return Success(result);
         }
 
         public async Task<Response<List<StoryDto>>> Handle(GetArchivedStoriesQuery request, CancellationToken cancellationToken)
@@ -122,7 +131,9 @@ namespace Application.Future.Stories.Query.Handlers
             {
                 dtos.Add(await _storyService.MapToDtoAsync(s, request.UserId));
             }
-            return new Response<List<StoryDto>>(dtos);
+
+            return Success(dtos);
+          
         }
     }
 }

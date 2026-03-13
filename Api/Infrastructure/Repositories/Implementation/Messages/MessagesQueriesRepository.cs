@@ -58,6 +58,8 @@ namespace Infrastructure.Repositories.Implementation.Messages
                         { "ReplyToMessageId", 1 },
                         { "ForwardedFromMessageId", 1 },
                         { "MessageType", 1 },
+                        { "replyContact", 1 },
+                        { "replyType", 1 },
                         { "SentAt", 1 },
                         { "EditedAt", 1 },
                         { "IsPinned", 1 },

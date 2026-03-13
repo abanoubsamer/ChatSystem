@@ -10,6 +10,7 @@ using MongoDB.Driver;
 namespace Application.Future.Stories.Command.Handlers
 {
     public class StoryManagementHandlers :
+        ResponseHandler,
         IRequestHandler<DeleteStoryCommand, Response<bool>>,
         IRequestHandler<ArchiveStoryCommand, Response<bool>>,
         IRequestHandler<UpdatePrivacySettingsCommand, Response<bool>>
@@ -26,28 +27,28 @@ namespace Application.Future.Stories.Command.Handlers
         public async Task<Response<bool>> Handle(DeleteStoryCommand request, CancellationToken cancellationToken)
         {
             var story = await _storyRepo.FindOneAsync(s => s.Id == request.StoryId && s.UserId == request.UserId);
-            if (story == null) return new Response<bool>("Story not found");
+            if (story == null) return NotFound<bool>("Story not found");
 
             story.IsDeleted = true;
             await _storyRepo.UpdateAsync(story);
 
             if (!string.IsNullOrEmpty(story.MediaUrl))
             {
-                await _mediaService.DeleteMediaAsync(story.MediaUrl);
+                //await _mediaService.DeleteMediaAsync(story.MediaUrl);
             }
 
-            return new Response<bool>(true);
+            return Success(true);
         }
 
         public async Task<Response<bool>> Handle(ArchiveStoryCommand request, CancellationToken cancellationToken)
         {
             var story = await _storyRepo.FindOneAsync(s => s.Id == request.StoryId && s.UserId == request.UserId);
-            if (story == null) return new Response<bool>("Story not found");
+            if (story == null) return NotFound<bool>("Story not found");
 
             story.IsArchived = true;
             await _storyRepo.UpdateAsync(story);
 
-            return new Response<bool>(true);
+            return Success(true);
         }
 
         public async Task<Response<bool>> Handle(UpdatePrivacySettingsCommand request, CancellationToken cancellationToken)
@@ -64,7 +65,7 @@ namespace Application.Future.Stories.Command.Handlers
                     .Set(s => s.AllowedUserIds, request.Request.AllowedUserIds)
             );
 
-            return new Response<bool>(true);
+            return Success(true);
         }
     }
 }

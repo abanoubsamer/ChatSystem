@@ -17,18 +17,6 @@ namespace Api.Controllers
         {
         }
 
-        [HttpPost(Routing.Story.UploadUrl)]
-        public async Task<IActionResult> GenerateUploadUrl([FromBody] GenerateUploadUrlCommand command)
-        {
-            return NewResult(await _Mediator.Send(command));
-        }
-
-        [HttpPost(Routing.Story.ConfirmUpload)]
-        public async Task<IActionResult> ConfirmUpload([FromBody] ConfirmUploadCommand command)
-        {
-            return NewResult(await _Mediator.Send(command));
-        }
-
         [HttpPost(Routing.Story.Create)]
         public async Task<IActionResult> CreateStory([FromBody] CreateStoryRequest request)
         {

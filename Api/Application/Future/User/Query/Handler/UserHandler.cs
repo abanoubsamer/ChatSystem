@@ -20,7 +20,9 @@ namespace Application.Future.User.Query.Handler
 
         public async Task<Response<GetUserInfoResponse>> Handle(GetUserInfoModel request, CancellationToken cancellationToken)
         {
-            var info = await repository.GetUserInfoAsync(ObjectId.Parse(request.UserId));
+            ObjectId.TryParse(request.UserId, out var objectId);
+
+            var info = await repository.GetUserInfoAsync(objectId);
             
             if (info == null)  return NotFound<GetUserInfoResponse>("User not found");
 
