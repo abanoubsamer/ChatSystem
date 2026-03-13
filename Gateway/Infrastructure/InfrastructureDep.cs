@@ -145,8 +145,11 @@ namespace Infrastructure
                         h.Password(configuration["RabbitMqSettings:Password"] ?? "guest");
                     });
 
-                    bus.ReceiveEndpoint("WebSocket-Engress-queue", e =>
+                    var instanceId = Guid.NewGuid().ToString("N").Substring(0, 8);
+
+                    bus.ReceiveEndpoint($"WebSocket-Engress-queue-{instanceId}", e =>
                     {
+                        e.AutoDelete = true;
                         e.ConfigureConsumer<BroadcastMessageConsumer>(context);
                     });
                     bus.ReceiveEndpoint("WebSocket-Ack-Store-queue", e =>
@@ -166,8 +169,9 @@ namespace Infrastructure
                     {
                         e.ConfigureConsumer<NewChatConsumer>(context);
                     });
-                    bus.ReceiveEndpoint("WebSocket-Story-Broadcast-queue", e =>
+                    bus.ReceiveEndpoint($"WebSocket-Story-Broadcast-queue-{instanceId}", e =>
                     {
+                        e.AutoDelete = true;
                         e.ConfigureConsumer<StoryBroadcastConsumer>(context);
                     });
 

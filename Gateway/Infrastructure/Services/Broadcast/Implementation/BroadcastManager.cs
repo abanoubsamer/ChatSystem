@@ -11,23 +11,23 @@ namespace Infrastructure.Services.Broadcast.Implementation
             WebSocketMessageType type)
         {
             if (sockets == null)
-                return ;
+                return;
 
-            var tasks = sockets
-                  .Where(ws => ws != null&& ws.State == WebSocketState.Open)
-                  .Select(async ws =>
-                  {
-                      try
-                      {
-                          await ws.SendAsync(new ArraySegment<byte>(payload), type, true, CancellationToken.None);
-                      }
-                      catch
-                      {
+            var filteredSockets = sockets.Where(ws => ws != null && ws.State == WebSocketState.Open);
 
-                      }
-                  });
-
-            await Task.WhenAll(tasks);
+            await Parallel.ForEachAsync(filteredSockets,
+                new ParallelOptions { MaxDegreeOfParallelism = 100 },
+                async (ws, ct) =>
+                {
+                    try
+                    {
+                        await ws.SendAsync(new ArraySegment<byte>(payload), type, true, CancellationToken.None);
+                    }
+                    catch
+                    {
+                        // Ignore individual socket failures
+                    }
+                });
         }
 
        

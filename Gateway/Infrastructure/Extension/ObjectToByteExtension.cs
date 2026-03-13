@@ -5,6 +5,8 @@ namespace Infrastructure.Extension
 {
     public static class ObjectToByteExtension
     {
+        private static readonly MessagePackSerializerOptions _options = MessagePackSerializerOptions.Standard
+            .WithResolver(ContractlessStandardResolver.Instance);
 
         public static byte[] ToByteArray(this object obj)
         {
@@ -12,12 +14,8 @@ namespace Infrastructure.Extension
             {
                 throw new ArgumentNullException(nameof(obj), "Object cannot be null");
             }
-          
-          
-            var options = MessagePackSerializerOptions.Standard
-                              .WithResolver(ContractlessStandardResolver.Instance);
-                             
-            return MessagePackSerializer.Serialize(obj, options);
+
+            return MessagePackSerializer.Serialize(obj, _options);
         }
     }
 }

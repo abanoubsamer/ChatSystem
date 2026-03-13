@@ -159,6 +159,12 @@ namespace Infrastructure.Processor
             return decompressed;
         }
 
+        private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
+
         private static MessageEnvelope? DeserializeMessage(ReadOnlyMemory<byte> payload)
         {
             if (payload.IsEmpty)
@@ -166,12 +172,7 @@ namespace Infrastructure.Processor
 
             try
             {
-                var json = Encoding.UTF8.GetString(payload.Span);
-                var envelope = JsonSerializer.Deserialize<MessageEnvelope>(json, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true,
-                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-                });
+                var envelope = JsonSerializer.Deserialize<MessageEnvelope>(payload.Span, _jsonOptions);
                 return envelope;
             }
             catch (JsonException ex)
