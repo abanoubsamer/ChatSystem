@@ -24,6 +24,7 @@ using Infrastructure.Handler.WebSocketHandler.Engress;
     using Infrastructure.Consumers;
 using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Chat;
 using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Message;
+using Infrastructure.Handler.WebSocketHandler.Dispatcher;
 using Infrastructure.Handler.WebSocketHandler.Ingress;
 using Infrastructure.Repositories.GenaricRepo;
 using Infrastructure.Repositories.Implementation.Chats;
@@ -203,6 +204,7 @@ namespace Infrastructure
 
             // Gateway Ingress Handlers
             services.AddScoped<IGatewayIngressHandler, GatewayIngressHandler>();
+            services.AddScoped<IMessageDispatcher, MessageDispatcher>();
             services.AddSingleton<IRingTimeoutService, RingTimeoutService>();
 
             // Method Handlers

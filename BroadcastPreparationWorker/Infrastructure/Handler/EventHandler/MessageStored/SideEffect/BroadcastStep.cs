@@ -32,30 +32,26 @@ namespace Infrastructure.Handler.EventHandler.MessageStored.SideEffect
         {
             await next();
 
-            _ = Task.Run(async () =>
+            try
             {
-                try
+                var userinfo = await _userRepository.GetUserInfo(ObjectId.Parse(evt.SenderId));
+
+                var broadcastCommand = new BroadcastMessageCommand()
                 {
-                    var userinfo = await _userRepository.GetUserInfo(ObjectId.Parse(evt.SenderId));
+                    ChatId = evt.ChatId,
+                    SenderName = userinfo?.UserName ?? "Unknown",
+                    Content = evt.Content,
+                    MessageId = evt.MessageId,
+                    MessageType = evt.MessageType,
+                    SenderId = evt.SenderId,
+                };
 
-                    var broadcastCommand = new BroadcastMessageCommand()
-                    {
-                        ChatId = evt.ChatId,
-                        SenderName = userinfo?.UserName ?? "Unknown",
-                        Content = evt.Content,
-                        MessageId = evt.MessageId,
-                        MessageType = evt.MessageType,
-                        SenderId = evt.SenderId,
-                    };
-
-
-                    await _publish.PublishAsync(broadcastCommand);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "BroadcastStep failed for MessageId: {MessageId}", evt.MessageId);
-                }
-            });
+                await _publish.PublishAsync(broadcastCommand);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "BroadcastStep failed for MessageId: {MessageId}", evt.MessageId);
+            }
         }
     }
 }

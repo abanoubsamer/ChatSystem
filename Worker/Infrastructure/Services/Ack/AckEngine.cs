@@ -4,6 +4,7 @@ using Domain.Models.Result;
 using Domain.Models.State;
 using Domain.Models.State.DataStructures;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -22,11 +23,8 @@ namespace Infrastructure.Services.Ack
         private readonly AckStateDs _fastState;
         // Reference to Orleans persistent state
         private readonly ChatAckState _persistentState;
-        private readonly Dictionary<string, string> _pendingDelivery; 
-        private readonly Dictionary<string, string> _pendingRead;    
-        private readonly object _lock = new();
-        private bool _isDirty;
-        private bool _isFlushing;
+        private readonly ConcurrentDictionary<string, string> _pendingDelivery;
+        private readonly ConcurrentDictionary<string, string> _pendingRead;
 
         public AckEngine(
             ChatAckState persistentState,
@@ -34,8 +32,8 @@ namespace Infrastructure.Services.Ack
         {
             _persistentState = persistentState;
             _fastState = new AckStateDs(memberCount);
-            _pendingDelivery = new Dictionary<string, string>();
-            _pendingRead = new Dictionary<string, string>();
+            _pendingDelivery = new ConcurrentDictionary<string, string>();
+            _pendingRead = new ConcurrentDictionary<string, string>();
             HydrateFromPersistent();
         }
 
@@ -63,10 +61,7 @@ namespace Infrastructure.Services.Ack
             var result = _fastState.UpdateDelivery(userId, msgId);
 
             // ✅ O(1) - Overwrite if exists
-            lock (_lock)
-            {
-                _pendingDelivery[userId] = msgId;
-            }
+            _pendingDelivery[userId] = msgId;
 
             return result;
         }
@@ -77,10 +72,7 @@ namespace Infrastructure.Services.Ack
             var result = _fastState.UpdateRead(userId, msgId);
 
             // ✅ O(1) - Overwrite if exists
-            lock (_lock)
-            {
-                _pendingRead[userId] = msgId;
-            }
+            _pendingRead[userId] = msgId;
 
             return result;
         }
@@ -91,22 +83,33 @@ namespace Infrastructure.Services.Ack
         /// </summary>
         public async Task FlushAsync(IPersistentState<ChatAckState> persistentState)
         {
-            Dictionary<string, string> batchD, batchR;
+            if (_pendingDelivery.IsEmpty && _pendingRead.IsEmpty) return;
 
-            lock (_lock)
+            var batchD = new List<KeyValuePair<string, string>>();
+            var batchR = new List<KeyValuePair<string, string>>();
+
+            // Safely extract and clear
+            foreach (var key in _pendingDelivery.Keys)
             {
-                if (_pendingDelivery.Count == 0 && _pendingRead.Count == 0) return;
-                batchD = new Dictionary<string, string>(_pendingDelivery);
-                batchR = new Dictionary<string, string>(_pendingRead);
-                _pendingDelivery.Clear();
-                _pendingRead.Clear();
+                if (_pendingDelivery.TryRemove(key, out var msgId))
+                {
+                    batchD.Add(new KeyValuePair<string, string>(key, msgId));
+                }
             }
 
-            foreach (var (userId, msgId) in batchD)
-                persistentState.State.DeliveryWatermarks[userId] = msgId;
+            foreach (var key in _pendingRead.Keys)
+            {
+                if (_pendingRead.TryRemove(key, out var msgId))
+                {
+                    batchR.Add(new KeyValuePair<string, string>(key, msgId));
+                }
+            }
 
-            foreach (var (userId, msgId) in batchR)
-                persistentState.State.ReadWatermarks[userId] = msgId;
+            foreach (var kvp in batchD)
+                persistentState.State.DeliveryWatermarks[kvp.Key] = kvp.Value;
+
+            foreach (var kvp in batchR)
+                persistentState.State.ReadWatermarks[kvp.Key] = kvp.Value;
 
             var (dMin, rMin) = _fastState.GetGlobalMins();
             persistentState.State.GlobalDeliveryMin = dMin;
