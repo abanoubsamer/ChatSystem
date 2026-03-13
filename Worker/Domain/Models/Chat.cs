@@ -7,8 +7,6 @@ namespace Domain.Models
 {
     public class Chat
     {
-
-     
         public ObjectId Id { get; set; }
         public long WatermarkVersion { get; set; }
         public ObjectId MinLastMsgIdDelivery { get; set; }
@@ -23,13 +21,8 @@ namespace Domain.Models
         public string? Title { get; set; }
      
         public string? Description { get; set; }
-        
-      
         public string? CreatedById { get; set; }
-        
-    
         public string? PhotoUrl { get; set; }
-
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public bool IsDeleted { get; set; }

@@ -1,5 +1,6 @@
 using Application.Abstractions.Broadcast;
 using Application.Abstractions.Handler.Methods;
+using Application.Dtos.Message;
 using Contracts.Call.Signals;
 using System.Net.WebSockets;
 
@@ -9,28 +10,28 @@ namespace Application.Handlers.Call
     {
         public override string MethodName => "ice_candidate";
 
-        private readonly IBroadcastServices _broadcastServices;
+        private readonly IOutgoingMessageService _outgoingMessage;
 
-        public IceCandidateMethodHandler(IBroadcastServices broadcastServices)
-        {
-            _broadcastServices = broadcastServices;
-        }
+        public IceCandidateMethodHandler(IOutgoingMessageService outgoingMessage)
+            => _outgoingMessage = outgoingMessage;
 
-        protected override async Task HandleAsync(string userId, IceCandidateSignal request, WebSocket socket)
-        {
-            var signal = new
-            {
-                Method = "ice_candidate",
-                Params = new
-                {
-                    SenderId = userId,
-                    TargetUserId = request.TargetUserId,
-                    Candidate = request.Candidate,
-                    SdpMid = request.SdpMid,
-                    SdpMLineIndex = request.SdpMLineIndex
-                }
-            };
-            await _broadcastServices.SendMessageToUserAsync(request.TargetUserId, signal);
-        }
+        protected override Task HandleAsync(
+            string userId,
+            IceCandidateSignal request,
+            WebSocket socket,
+            CancellationToken cancellationToken = default)
+            => _outgoingMessage.SendToUserAsync(
+                request.TargetUserId,
+                new OutgoingMessage(
+                    request.TargetUserId,
+                    new
+                    {
+                        SenderId = userId,
+                        Candidate = request.Candidate,
+                        SdpMid = request.SdpMid,
+                        SdpMLineIndex = request.SdpMLineIndex
+                    },
+                    "ice_candidate"),
+                cancellationToken);
     }
 }

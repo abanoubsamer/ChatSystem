@@ -16,9 +16,10 @@ namespace Application.Handlers.Message
             _publisher = publisher;
         }
 
-        protected override async Task HandleAsync(string userId, ReceivedACKBatchEvent request, WebSocket socket)
+        protected async override Task HandleAsync(string userId, ReceivedACKBatchEvent data,
+            WebSocket socket, CancellationToken cancellationToken = default)
         {
-            await _publisher.PublishAsync(request);
+            await _publisher.PublishAsync(data);
         }
     }
 }

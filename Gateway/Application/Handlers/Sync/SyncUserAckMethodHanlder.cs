@@ -16,7 +16,8 @@ namespace Application.Handlers.Sync
             _publisher = publisher;
         }
 
-        protected override async Task HandleAsync(string userId, SyncUserVersionCommand request, WebSocket socket)
+        protected override async Task HandleAsync(string userId, SyncUserVersionCommand request,
+            WebSocket socket, CancellationToken cancellationToken = default)
         {
             await _publisher.PublishAsync(request);
         }

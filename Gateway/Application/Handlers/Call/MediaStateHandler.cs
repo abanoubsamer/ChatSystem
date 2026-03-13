@@ -1,6 +1,7 @@
 ﻿using Application.Abstractions.Broadcast;
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
+using Application.Dtos.Message;
 using Contracts.Call.Event;
 using Contracts.Call.Signals;
 using System;
@@ -16,42 +17,48 @@ namespace Application.Handlers.Call
     {
         public override string MethodName => "media_state";
 
-        private readonly IBroadcastServices _broadcastServices;
-        private readonly IMessagePublisher _eventPublisher;
+        private readonly IOutgoingMessageService _outgoingMessage;
+        private readonly IMessagePublisher _publisher;
 
         public MediaStateHandler(
-            IBroadcastServices broadcastServices,
-            IMessagePublisher eventPublisher)
+            IOutgoingMessageService outgoingMessage,
+            IMessagePublisher publisher)
         {
-            _broadcastServices = broadcastServices;
-            _eventPublisher = eventPublisher;
+            _outgoingMessage = outgoingMessage;
+            _publisher = publisher;
         }
 
-        protected override async Task HandleAsync(string userId, MediaStateSignal request, WebSocket socket)
+        protected override async Task HandleAsync(
+            string userId,
+            MediaStateSignal data,
+            WebSocket socket,
+            CancellationToken cancellationToken = default)
         {
-            // 🔴 Publish Event (Fire & Forget - مهمش نتيجة)
-            _ = _eventPublisher.PublishAsync(new MediaStateChangedEvent
+            // fire & forget — مش بننتظر الـ DB
+            _ = _publisher.PublishAsync(new MediaStateChangedEvent
             {
-                SessionId = request.SessionId,
+                SessionId = data.SessionId,
                 UserId = userId,
-                IsMuted = request.IsMuted,
-                IsVideoOn = request.IsVideoOn,
-                IsScreenSharing = request.IsScreenSharing
+                IsMuted = data.IsMuted,
+                IsVideoOn = data.IsVideoOn,
+                IsScreenSharing = data.IsScreenSharing
             });
 
-            // 🟢 Broadcast Immediately (مستناش الـ DB)
-            await _broadcastServices.SendMessageToGroupAsync(userId, request.SessionId, new
-            {
-                Method = "media_state_changed",
-                Params = new
-                {
-                    SessionId = request.SessionId,
-                    UserId = userId,
-                    IsMuted = request.IsMuted,
-                    IsVideoOn = request.IsVideoOn,
-                    IsScreenSharing = request.IsScreenSharing
-                }
-            });
+            await _outgoingMessage.SendToRoomAsync(
+                excludeUserId: userId,
+                roomId: data.SessionId,
+                message: new OutgoingMessage(
+                    data.SessionId,
+                    new
+                    {
+                        SessionId = data.SessionId,
+                        UserId = userId,
+                        IsMuted = data.IsMuted,
+                        IsVideoOn = data.IsVideoOn,
+                        IsScreenSharing = data.IsScreenSharing
+                    },
+                    "media_state_changed"),
+                ct: cancellationToken);
         }
     }
 }

@@ -3,8 +3,9 @@ using Application.Abstractions.Handler.Dispatcher;
 using Application.Abstractions.Metrics;
 using Application.Abstractions.Processor;
 using Application.Abstractions.RateLimiting;
-using Application.Dtos.Message.Mehode;
+using Application.Messaging;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using System;
 using System.Buffers;
 using System.Diagnostics;
@@ -23,10 +24,15 @@ namespace Infrastructure.Processor
         private readonly IMessageCompressor _compressor;
         private readonly IMetricsCollector _metrics;
         private readonly ILogger<DefaultMessageProcessor> _logger;
-
+        private static readonly ActivitySource _activitySource =
+                  new ActivitySource("ChatGateway.MessageProcessor", "1.0.0");
         private static readonly TimeSpan RateLimitWindow = TimeSpan.FromSeconds(1);
         private const int MaxRequestsPerWindow = 100;
-
+        private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
         public DefaultMessageProcessor(
             IMethodDispatcher dispatcher,
             IRateLimiter rateLimiter,
@@ -47,10 +53,15 @@ namespace Infrastructure.Processor
             WebSocket socket,
             CancellationToken cancellationToken)
         {
-            using var activity = new Activity("ProcessMessage")
-                .SetTag("user.id", userId)
-                .SetTag("message.size", message.Length)
-                .Start();
+            using var activity = _activitySource.StartActivity(
+                 "ProcessMessage",
+                 ActivityKind.Server,
+                 parentContext: default,
+                 tags: new[]
+                 {
+                    new KeyValuePair<string, object?>("user.id", userId),
+                    new KeyValuePair<string, object?>("message.size", message.Length),
+                 });
 
             var stopwatch = Stopwatch.StartNew();
 
@@ -85,6 +96,7 @@ namespace Infrastructure.Processor
 
             // Step 3: Deserialize
             var envelope = DeserializeMessage(payload);
+
             if (envelope == null || !envelope.IsValid)
             {
                 _logger.LogWarning("Invalid message from user {UserId}", userId);
@@ -151,8 +163,8 @@ namespace Infrastructure.Processor
 
             _metrics.IncrementCounter(
                 "message.decompressed",
-                new KeyValuePair<string, object?>("user.id", userId),
-                new KeyValuePair<string, object?>(
+                 new KeyValuePair<string, object?>("user.id", userId),
+                 new KeyValuePair<string, object?>(
                     "compression.ratio",
                     (double)decompressed.Length / message.Length));
 
@@ -166,12 +178,7 @@ namespace Infrastructure.Processor
 
             try
             {
-                var json = Encoding.UTF8.GetString(payload.Span);
-                var envelope = JsonSerializer.Deserialize<MessageEnvelope>(json, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true,
-                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-                });
+                var envelope = JsonSerializer.Deserialize<MessageEnvelope>(payload.Span, _jsonOptions);
                 return envelope;
             }
             catch (JsonException ex)
@@ -181,22 +188,30 @@ namespace Infrastructure.Processor
             }
         }
         private static async Task SendErrorAsync(
-            WebSocket socket,
-            string code,
-            string message,
-            CancellationToken cancellationToken)
+             WebSocket socket,
+             string code,
+             string message,
+             CancellationToken ct)
         {
-            if (socket.State != WebSocketState.Open)
-                return;
+            if (socket.State != WebSocketState.Open) return;
 
-            var error = JsonSerializer.Serialize(new { error = code, message });
-            var bytes = Encoding.UTF8.GetBytes(error);
+            // اكتب على buffer من الـ pool مباشرة
+            using var buffer = new MemoryStream(256);
+            using (var writer = new Utf8JsonWriter(buffer))
+            {
+                writer.WriteStartObject();
+                writer.WriteString("error", code);
+                writer.WriteString("message", message);
+                writer.WriteEndObject();
+            }
+
+            var bytes = buffer.GetBuffer().AsMemory(0, (int)buffer.Length);
 
             await socket.SendAsync(
                 bytes,
                 WebSocketMessageType.Text,
                 endOfMessage: true,
-                cancellationToken);
+                ct);
         }
 
         private void RecordSuccessMetrics(string userId, TimeSpan duration, Activity? activity)
@@ -209,7 +224,7 @@ namespace Infrastructure.Processor
 
             activity?.SetStatus(ActivityStatusCode.Ok);
         }
-
+       
         private void RecordFailureMetrics(string userId, TimeSpan duration, Exception ex, Activity? activity)
         {
             _metrics.IncrementCounter(
@@ -230,5 +245,7 @@ namespace Infrastructure.Processor
 
             _logger.LogError(ex, "Failed to process message for user {UserId}", userId);
         }
+
+
     }
 }

@@ -4,6 +4,7 @@ using Application.Abstractions.Connection;
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
 using Application.Abstractions.Session;
+using Application.Dtos.Message;
 using Contracts.Call.Event;
 using Contracts.Call.Session;
 using Contracts.Call.Signals;
@@ -15,48 +16,46 @@ namespace Application.Handlers.Call
     {
         public override string MethodName => "join_call";
 
-        private readonly IBroadcastServices _broadcastServices;
+        private readonly IOutgoingMessageService _outgoingMessage;
         private readonly IConnectionServices _connectionServices;
         private readonly ICallSessionStore _sessionStore;
         private readonly IMessagePublisher _publisher;
         private readonly IRingTimeoutService _ringTimeout;
 
         public JoinCallMethodHandler(
-            IBroadcastServices broadcastServices,
+            IOutgoingMessageService outgoingMessage,
             ICallSessionStore sessionStore,
             IConnectionServices connectionServices,
             IMessagePublisher publisher,
             IRingTimeoutService ringTimeout)
         {
+            _outgoingMessage = outgoingMessage;
             _sessionStore = sessionStore;
-            _broadcastServices = broadcastServices;
-            _publisher = publisher;
             _connectionServices = connectionServices;
+            _publisher = publisher;
             _ringTimeout = ringTimeout;
         }
 
-        protected override async Task HandleAsync(string userId, JoinGroupSignal request, WebSocket socket)
+        protected override async Task HandleAsync(
+            string userId,
+            JoinGroupSignal request,
+            WebSocket socket,
+            CancellationToken cancellationToken = default)
         {
             var session = await _sessionStore.GetAsync(request.SessionId);
-          
-            // ── Guard: session must exist ────────────────────────────────
+
+            // ── Guard ─────────────────────────────────────────────────────────────
             if (session == null)
             {
-                await _broadcastServices.SendMessageToUserAsync(userId, new
-                {
-                    Method = "join_failed",
-                    Params = new
-                    {
-                        SessionId = request.SessionId,
-                        Reason = "session_not_found",
-                        Message = "This call no longer exists."
-                    }
-                });
+                await _outgoingMessage.SendToUserAsync(userId, new OutgoingMessage(
+                    userId,
+                    new { SessionId = request.SessionId, Reason = "session_not_found", Message = "This call no longer exists." },
+                    "join_failed"), cancellationToken);
                 return;
             }
 
-            // ── Add user to WebSocket group ──────────────────────────────
-            _connectionServices.AddUserToGroup(userId, request.SessionId);
+            // ── ضيف الـ user للـ RoomGrain ────────────────────────────────────────
+            await _connectionServices.JoinGroupAsync(userId, request.SessionId, cancellationToken);
 
             if (!session.Participants.Contains(userId))
             {
@@ -64,26 +63,19 @@ namespace Application.Handlers.Call
                 await _sessionStore.SetAsync(session.SessionId, session);
             }
 
-            // ══════════════════════════════════════════════════════════════
-            // ✅ FEATURE 2: Cancel ring timer — someone answered!
-            // ══════════════════════════════════════════════════════════════
+            // ── Cancel ring timer ─────────────────────────────────────────────────
             _ringTimeout.CancelRingTimer(request.SessionId);
 
-            // ── First joiner: notify creator the call was answered ────────
+            // ── أول حد يجاوب → أبلّغ الـ creator ────────────────────────────────
             if (session.Participants.Count == 2)
             {
-                await _broadcastServices.SendMessageToUserAsync(session.CreatorId, new
-                {
-                    Method = "call_answered",           // renamed from group_call_created for clarity
-                    Params = new
-                    {
-                        SessionId = request.SessionId,
-                        FirstJoinerId = userId
-                    }
-                });
+                await _outgoingMessage.SendToUserAsync(session.CreatorId, new OutgoingMessage(
+                    session.CreatorId,
+                    new { SessionId = request.SessionId, FirstJoinerId = userId },
+                    "call_answered"), cancellationToken);
             }
 
-            // ── Publish participant joined event ─────────────────────────
+            // ── Publish event ─────────────────────────────────────────────────────
             await _publisher.PublishAsync(new ParticipantJoinedEvent
             {
                 SessionId = request.SessionId,
@@ -91,21 +83,17 @@ namespace Application.Handlers.Call
                 JoinedAt = DateTime.UtcNow
             });
 
-            // ── Notify everyone else in the group ────────────────────────
-            var existingMembers = _connectionServices.GetUsersInGroup(request.SessionId)
-                                                     .Where(m => m != userId)
-                                                     .ToList();
+            // ── أبلّغ باقي الـ members ────────────────────────────────────────────
+            var existingMembers = await _connectionServices.GetUsersInGroupAsync(request.SessionId, cancellationToken);
 
-            await _broadcastServices.SendMessageToGroupAsync(userId, request.SessionId, new
-            {
-                Method = "user_joined_call",
-                Params = new
-                {
-                    SessionId = request.SessionId,
-                    UserId = userId,
-                    ExistingMembers = existingMembers
-                }
-            });
+            await _outgoingMessage.SendToRoomAsync(
+                excludeUserId: userId,
+                roomId: request.SessionId,
+                message: new OutgoingMessage(
+                    request.SessionId,
+                    new { SessionId = request.SessionId, UserId = userId, ExistingMembers = existingMembers },
+                    "user_joined_call"),
+                ct: cancellationToken);
         }
     }
 }

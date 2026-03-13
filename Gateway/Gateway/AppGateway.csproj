@@ -16,4 +16,8 @@
     <ProjectReference Include="..\..\Shared\Contracts\Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Migration\" />
+  </ItemGroup>
+
 </Project>

@@ -16,7 +16,9 @@ namespace Application.Handlers.Message
             _publisher = publisher;
         }
 
-        protected override async Task HandleAsync(string userId, InsertMessageCommand request, WebSocket socket)
+        protected override async Task HandleAsync(
+                 string userId, InsertMessageCommand request,
+                              WebSocket socket, CancellationToken ct)
         {
             await _publisher.PublishAsync(request);
         }

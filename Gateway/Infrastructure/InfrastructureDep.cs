@@ -15,40 +15,34 @@ using Application.Abstractions.Processor;
 using Application.Abstractions.Publisher;
 using Application.Abstractions.Queue;
 using Application.Abstractions.RateLimiting;
-using Application.Abstractions.Repositories.Chat;
 using Application.Abstractions.Session;
 using Application.Handlers.Call;
-using Application.Handlers.Heartbeat;
 using Application.Handlers.Message;
 using Application.Handlers.Snapshots;
 using Application.Handlers.State;
 using Application.Handlers.Sync;
 using Infrastructure.Compression;
-using Infrastructure.Consumers;
-using Infrastructure.Handler.WebSocketHandler.Dispatcher;
-using Infrastructure.Handler.WebSocketHandler.Engress;
-using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Chat;
-using Infrastructure.Handler.WebSocketHandler.Engress.Consumers.Message;
-using Infrastructure.Handler.WebSocketHandler.Ingress;
+using Infrastructure.Connection.Implementation;
 using Infrastructure.Metrics;
 using Infrastructure.PipeLine;
 using Infrastructure.Processor;
 using Infrastructure.RateLimiting;
 using Infrastructure.Repositories.GenaricRepo;
-using Infrastructure.Repositories.Implementation.Chats;
 using Infrastructure.Services.Auth;
 using Infrastructure.Services.Background;
 using Infrastructure.Services.Broadcast;
 using Infrastructure.Services.Broadcast.Implementation;
 using Infrastructure.Services.Connection;
-using Infrastructure.Services.Connection.Implementation;
-using Infrastructure.Services.ConsumerBackground;
 using Infrastructure.Services.Publisher;
 using Infrastructure.Services.Session;
+using Infrastructure.WebSocketHandler.Dispatcher;
+using Infrastructure.WebSocketHandler.Engress.Consumers.Chat;
+using Infrastructure.WebSocketHandler.Engress.Consumers.Message;
+using Infrastructure.WebSocketHandler.Engress.Story;
+using Infrastructure.WebSocketHandler.Ingress;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Session;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
@@ -193,22 +187,16 @@ namespace Infrastructure
             services.AddSingleton<IMessagePublisher, RabbitMqPublisher>();
 
             // Repositories → Singleton ✅
-            services.AddSingleton<IChatQueriesRepository, ChatQueriesRepository>();
 
-            // Session Services → Singleton ✅
-            services.AddSingleton<ISessionServices, SessionServices>();
             services.AddSingleton<ICallSessionStore, InMemorySessionStore>();
 
             // Connection and Broadcast Managers → Singleton ✅
-            services.AddSingleton<IConnectionStoreManager, ConnectionStoreManager>();
             services.AddSingleton<IFanOutResolverManager, FanOutResolverManager>();
+            services.AddSingleton<IWebSocketRegistry, LocalWebSocketRegistry>();
             services.AddSingleton<IBroadcastManager, BroadcastManager>();
-            services.AddSingleton<IBroadcastServices, BroadcastServices>();
             services.AddSingleton<IConnectionServices, ConnectionServices>();
-            services.AddSingleton<IGroupManager, GroupManager>();
-            services.AddSingleton<IPresenceRepository, InMemoryPresenceRepository>();
-            services.AddSingleton<IPresenceService, PresenceService>();
             services.AddSingleton<IRingTimeoutService, RingTimeoutService>();
+            services.AddSingleton<IOutgoingMessageService,OutgoingMessageService>();
 
             // Auth → Singleton ✅ (if thread-safe)
             services.AddSingleton<IAuthServices, AuthServices>();
@@ -224,13 +212,12 @@ namespace Infrastructure
 
             // Method Handlers → ALL SINGLETON ✅
             services.AddSingleton<IMethodHandler, NewMessageMethodHandler>();
-            services.AddSingleton<IMethodHandler, HeartbeatMethodHandler>();
             services.AddSingleton<IMethodHandler, MessageReceivedAckMethodHandler>();
             services.AddSingleton<IMethodHandler, SyncUserAckMethodHanlder>();
             services.AddSingleton<IMethodHandler, ReceivedSnapAckBatchMethodHandler>();
             services.AddSingleton<IMethodHandler, MessageSeenAckMethodHandler>();
-            services.AddSingleton<IMethodHandler, UserStateMethodHndler>();
-            services.AddSingleton<IMethodHandler, GroupStateMethodHndler>();
+            services.AddSingleton<IMethodHandler, UserStateMethodHandler>();
+            services.AddSingleton<IMethodHandler, GroupStateMethodHandler>();
             services.AddSingleton<IMethodHandler, ReceivedAckBatchMethodHandler>();
             services.AddSingleton<IMethodHandler, OfferMethodHandler>();
             services.AddSingleton<IMethodHandler, AnswerMethodHandler>();
@@ -248,11 +235,7 @@ namespace Infrastructure
             services.AddScoped<IConnectionManager, WebSocketConnectionManager>();
             services.AddScoped<IGatewayIngressHandler, GatewayIngressHandler>();
 
-            // Background Services
-            services.AddHostedService<BroadcastMessageBackground>();
-            services.AddHostedService<CleanupConnactionBackground>();
-            services.AddHostedService<MessageReceivedAckBackground>();
-
+     
             return services;
         }
     }

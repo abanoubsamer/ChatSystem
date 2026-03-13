@@ -18,34 +18,41 @@ namespace AppGateway.Middleware
 
         public async Task InvokeAsync(HttpContext context)
         {
-            if (context.Request.Path.StartsWithSegments("/ws"))
-            {
-                if (!context.WebSockets.IsWebSocketRequest)
+                if (context.Request.Path.StartsWithSegments("/ws"))
                 {
-                    context.Response.StatusCode = 400;
-                    return;
-                }
+                    if (!context.WebSockets.IsWebSocketRequest)
+                    {
+                        context.Response.StatusCode = 400;
+                        return;
+                    }
 
-                if (context.User?.Identity?.IsAuthenticated != true)
+                    // ✅ التحقق من Authentication أولاً
+                    if (context.User?.Identity?.IsAuthenticated != true)
+                    {
+                        context.Response.StatusCode = 401;
+                        return;
+                    }
+
+                    // ✅ التحقق من userId قبل AcceptWebSocketAsync
+                    var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                    if (string.IsNullOrWhiteSpace(userId))
+                    {
+                        context.Response.StatusCode = 401;
+                        return;
+                    }
+
+                    // ✅ الآن نقبل الاتصال
+                    var socket = await context.WebSockets.AcceptWebSocketAsync();
+
+                    await using var scope = _serviceProvider.CreateAsyncScope();
+                    var gateway = scope.ServiceProvider.GetRequiredService<IGatewayIngressHandler>();
+                    await gateway.HandleAsync(userId, socket, context.RequestAborted);
+                }
+                else
                 {
-                    context.Response.StatusCode = 401;
-                    return;
+                    await _next(context);
                 }
-
-                var socket = await context.WebSockets.AcceptWebSocketAsync();
-                
-                var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
-
-                await using var scope = _serviceProvider.CreateAsyncScope();
-               
-                var gateway = scope.ServiceProvider.GetRequiredService<IGatewayIngressHandler>();
-
-                await gateway.HandleAsync(userId, socket, context.RequestAborted);
-            }
-            else
-            {
-                await _next(context);
-            }
+          
         }
     }
 }

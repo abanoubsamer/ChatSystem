@@ -4,7 +4,7 @@ using Application.Abstractions.Connection;
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
 using Application.Abstractions.Session;
-using Application.Dtos.Connection;
+using Application.Dtos.Message;
 using Contracts.Call.Event;
 using Contracts.Call.Session;
 using Contracts.Call.Signals;
@@ -19,77 +19,73 @@ namespace Application.Handlers.Call
     {
         public override string MethodName => "create_group_call";
 
-        // How long the call rings before auto-cancelling (no one answered)
         private static readonly TimeSpan RingTimeout = TimeSpan.FromSeconds(30);
 
-        private readonly IBroadcastServices _broadcastServices;
+        private readonly IOutgoingMessageService _outgoingMessage;
         private readonly ICallSessionStore _sessionStore;
         private readonly IConnectionServices _connectionServices;
         private readonly IMessagePublisher _publisher;
         private readonly IRingTimeoutService _ringTimeout;
 
         public CreateGroupCallHandler(
-            IBroadcastServices broadcastServices,
+            IOutgoingMessageService outgoingMessage,
             ICallSessionStore sessionStore,
             IConnectionServices connectionServices,
             IMessagePublisher publisher,
             IRingTimeoutService ringTimeout)
         {
-            _broadcastServices = broadcastServices;
+            _outgoingMessage = outgoingMessage;
             _sessionStore = sessionStore;
             _connectionServices = connectionServices;
             _publisher = publisher;
             _ringTimeout = ringTimeout;
         }
 
-        protected async override Task HandleAsync(string userId, CreateGroupSignal request, WebSocket socket)
+        protected override async Task HandleAsync(
+            string userId,
+            CreateGroupSignal request,
+            WebSocket socket,
+            CancellationToken cancellationToken = default)
         {
-            // ══════════════════════════════════════════════════════════════
-            // ✅ FEATURE 1: Check if there's already an active call on this chat
-            // ══════════════════════════════════════════════════════════════
+            // ── Guard: في call شغال على نفس الـ chat ────────────────────────────
             var existingSessionId = await _sessionStore.GetActiveSessionByChatIdAsync(request.ChatId);
 
             if (existingSessionId != null)
             {
-                // There's already a live call — tell the caller to join instead
-                await _broadcastServices.SendMessageToUserAsync(userId, new
-                {
-                    Method = "call_already_active",
-                    Params = new
+                await _outgoingMessage.SendToUserAsync(userId, new OutgoingMessage(
+                    request.ChatId,
+                    new
                     {
                         SessionId = existingSessionId,
                         ChatId = request.ChatId,
                         Message = "There is already an active call. You can join it instead."
-                    }
-                });
+                    },
+                    "call_already_active"), cancellationToken);
+
                 return;
             }
 
-            // ══════════════════════════════════════════════════════════════
-            // 1️⃣ Generate Session ID
-            // ══════════════════════════════════════════════════════════════
+            // ── 1. إنشاء الـ session ──────────────────────────────────────────────
             var sessionId = ObjectId.GenerateNewId().ToString();
 
-            // 2️⃣ Add creator to the WebSocket group
-            _connectionServices.AddUserToGroup(userId, sessionId);
+            // ── 2. ضيف الـ creator لـ WebSocket group (Orleans RoomGrain) ─────────
+            await _connectionServices.JoinGroupAsync(userId, sessionId, cancellationToken);
 
-            // 3️⃣ Save session in store
-            var allParticipants = new List<string> { userId };
-
+            // ── 3. احفظ الـ session ───────────────────────────────────────────────
             await _sessionStore.SetAsync(sessionId, new SessionCallInfo
             {
                 SessionId = sessionId,
                 Type = SessionType.Group,
                 CreatorId = userId,
                 CreatedAt = DateTime.UtcNow,
-                Participants = allParticipants,
-                ChatId = request.ChatId          // ← store ChatId on session for cleanup
+                Participants = new List<string> { userId },
+                ChatId = request.ChatId
             });
 
-            // 4️⃣ Register ChatId → SessionId index (active call guard)
+            // ── 4. سجّل ChatId → SessionId (active call guard) ───────────────────
             await _sessionStore.SetActiveChatSessionAsync(request.ChatId, sessionId);
 
-            // 5️⃣ Publish events
+            // ── 5. Publish events ─────────────────────────────────────────────────
             await _publisher.PublishAsync(new SessionCreatedEvent
             {
                 SessionId = sessionId,
@@ -108,48 +104,46 @@ namespace Application.Handlers.Call
                 Content = "Voice Call"
             });
 
-            // 6️⃣ Broadcast incoming_call to all chat members
-            await _broadcastServices.SendMessageToGroupAsync(userId, request.ChatId, new
-            {
-                Method = "incoming_call",
-                Params = new
-                {
-                    SessionId = sessionId,
-                    CallerId = userId,
-                    IsGroupCall = true,
-                    ChatId = request.ChatId
-                }
-            });
+            // ── 6. أبلّغ كل أعضاء الـ chat بالـ incoming call (عدا الـ caller) ────
+            await _outgoingMessage.SendToRoomAsync(
+                excludeUserId: userId,
+                roomId: request.ChatId,
+                message: new OutgoingMessage(
+                    request.ChatId,
+                    new
+                    {
+                        SessionId = sessionId,
+                        CallerId = userId,
+                        IsGroupCall = true,
+                        ChatId = request.ChatId
+                    },
+                    "incoming_call"),
+                ct: cancellationToken);
 
-            // ══════════════════════════════════════════════════════════════
-            // ✅ FEATURE 2: Start ring timeout timer
-            // If no one joins within RingTimeout → auto-cancel the call
-            // ══════════════════════════════════════════════════════════════
+            // ── 7. ابدأ الـ ring timeout ──────────────────────────────────────────
             _ringTimeout.StartRingTimer(sessionId, RingTimeout, async () =>
-            {
-                await HandleRingTimeoutAsync(sessionId, request.ChatId, userId);
-            });
+                await HandleRingTimeoutAsync(sessionId, request.ChatId, userId));
         }
 
-        /// <summary>
-        /// Called when the ring timer expires and nobody answered.
-        /// Cleans up the session and notifies the caller.
-        /// </summary>
-        private async Task HandleRingTimeoutAsync(string sessionId, string chatId, string callerId)
+        // ─── Ring Timeout ─────────────────────────────────────────────────────────
+
+        private async Task HandleRingTimeoutAsync(
+            string sessionId,
+            string chatId,
+            string callerId)
         {
-            // Check if session still exists (might have been ended by LeaveCall already)
             var session = await _sessionStore.GetAsync(sessionId);
-            if (session == null) return;
 
-            // Only cancel if still no one joined (still only the creator)
-            if (session.Participants.Count > 1) return;
+            // الـ session اتحذفت بالفعل أو في حد join
+            if (session == null || session.Participants.Count > 1)
+                return;
 
-            // ── Cleanup ──────────────────────────────────────────────────
+            // ── Cleanup ───────────────────────────────────────────────────────────
             await _sessionStore.RemoveAsync(sessionId);
             await _sessionStore.RemoveActiveChatSessionAsync(chatId);
-            _connectionServices.RemoveGroup(sessionId);
+            await _connectionServices.LeaveGroupAsync(callerId, sessionId);
 
-            // ── Publish call ended event ─────────────────────────────────
+            // ── Publish ───────────────────────────────────────────────────────────
             await _publisher.PublishAsync(new CallEndedEvent
             {
                 SessionId = sessionId,
@@ -157,29 +151,30 @@ namespace Application.Handlers.Call
                 Reason = "no_answer"
             });
 
-            // ── Notify the caller that no one answered ───────────────────
-            await _broadcastServices.SendMessageToUserAsync(callerId, new
-            {
-                Method = "call_ended",
-                Params = new
+            // ── أبلّغ الـ caller إن محدش رد ──────────────────────────────────────
+            await _outgoingMessage.SendToUserAsync(callerId, new OutgoingMessage(
+                callerId,
+                new
                 {
                     SessionId = sessionId,
                     Reason = "no_answer",
                     Message = "No one answered the call."
-                }
-            });
+                },
+                "call_ended"));
 
-            // ── Notify chat members that the call was missed ─────────────
-            await _broadcastServices.SendMessageToGroupAsync(callerId, chatId, new
-            {
-                Method = "missed_call",
-                Params = new
-                {
-                    SessionId = sessionId,
-                    CallerId = callerId,
-                    ChatId = chatId
-                }
-            });
+            // ── أبلّغ الـ chat members بـ missed call ─────────────────────────────
+            await _outgoingMessage.SendToRoomAsync(
+               excludeUserId: callerId,
+                roomId: chatId,
+                message: new OutgoingMessage(
+                    chatId,
+                    new
+                    {
+                        SessionId = sessionId,
+                        CallerId = callerId,
+                        ChatId = chatId
+                    },
+                    "missed_call"));
         }
     }
 }

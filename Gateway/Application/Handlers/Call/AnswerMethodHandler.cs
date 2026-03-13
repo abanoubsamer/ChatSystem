@@ -3,6 +3,7 @@ using Application.Abstractions.Broadcast;
 using Application.Abstractions.CallSessionStore;
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
+using Application.Dtos.Message;
 using Contracts.Call.Event;
 using Contracts.Call.Signals;
 using System.Net.WebSockets;
@@ -13,31 +14,38 @@ namespace Application.Handlers.Call
     {
         public override string MethodName => "answer";
 
-        private readonly IBroadcastServices _broadcastServices;
+        private readonly IOutgoingMessageService _outgoingMessage;
         private readonly ICallSessionStore _sessionStore;
         private readonly IAuthServices _authServices;
         private readonly IMessagePublisher _publisher;
 
-        public AnswerMethodHandler(IBroadcastServices broadcastServices,
+        public AnswerMethodHandler(
+            IOutgoingMessageService outgoingMessage,
             ICallSessionStore sessionStore,
-            IMessagePublisher publisher, IAuthServices authServices)
+            IMessagePublisher publisher,
+            IAuthServices authServices)
         {
+            _outgoingMessage = outgoingMessage;
             _sessionStore = sessionStore;
             _publisher = publisher;
             _authServices = authServices;
-            _broadcastServices = broadcastServices;
         }
 
-        protected override async Task HandleAsync(string userId, AnswerSignal request, WebSocket socket)
+        protected override async Task HandleAsync(
+            string userId,
+            AnswerSignal request,
+            WebSocket socket,
+            CancellationToken cancellationToken = default)
         {
-
+            // ── أضيف الـ participant للـ session ──────────────────────────────────
             var session = await _sessionStore.GetAsync(request.SessionId);
-            
-            if (session != null) { 
-                session.Participants.Add(userId);
-                await _sessionStore.SetAsync(session.SessionId, session);
-            }
-            // 🔴 Publish Event (Fire & Forget)
+
+            if (session == null) return;
+
+            session.Participants.Add(userId);
+            await _sessionStore.SetAsync(session.SessionId, session);
+
+            // ── Publish event (fire & forget) ─────────────────────────────────────
             await _publisher.PublishAsync(new ParticipantJoinedEvent
             {
                 SessionId = request.SessionId,
@@ -45,18 +53,20 @@ namespace Application.Handlers.Call
                 JoinedAt = DateTime.UtcNow
             });
 
-            // 🟢 Continue Immediately
-            await _broadcastServices.SendMessageToUserAsync(request.TargetUserId, new
-            {
-                Method = "answer",
-                Params = new
-                {
-                    SessionId = request.SessionId,
-                    SenderId = userId,
-                    SenderName = _authServices.GetUserName(),
-                    Sdp = request.Sdp
-                }
-            });
+            // ── أبلّغ الـ target user بالـ answer ────────────────────────────────
+            await _outgoingMessage.SendToUserAsync(
+                request.TargetUserId,
+                new OutgoingMessage(
+                    request.TargetUserId,
+                    new
+                    {
+                        SessionId = request.SessionId,
+                        SenderId = userId,
+                        SenderName = _authServices.GetUserName(),
+                        Sdp = request.Sdp
+                    },
+                    "answer"),
+                cancellationToken);
         }
     }
 }

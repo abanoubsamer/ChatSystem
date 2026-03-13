@@ -16,7 +16,8 @@ namespace Application.Handlers.Snapshots
             _publisher = publisher;
         }
 
-        protected override async Task HandleAsync(string userId, ReceivedSnapACKBatchEvent request, WebSocket socket)
+        protected override async Task HandleAsync(string userId,
+            ReceivedSnapACKBatchEvent request, WebSocket socket, CancellationToken cancellationToken = default)
         {
             await _publisher.PublishAsync(request);
         }

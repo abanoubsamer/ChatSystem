@@ -1,5 +1,6 @@
     using Application.Abstractions.Broadcast;
 using Application.Abstractions.Handler.Methods;
+using Application.Dtos.Message;
 using Contracts.Call.Signals;
 using System.Net.WebSockets;
 
@@ -9,32 +10,38 @@ namespace Application.Handlers.Call
     {
         public override string MethodName => "group_signal";
 
-        private readonly IBroadcastServices _broadcastServices;
+        private readonly IOutgoingMessageService _outgoingMessage;
 
-        public GroupSignalMethodHandler(IBroadcastServices broadcastServices)
-        {
-            _broadcastServices = broadcastServices;
-        }
+        public GroupSignalMethodHandler(IOutgoingMessageService outgoingMessage)
+            => _outgoingMessage = outgoingMessage;
 
-        protected override async Task HandleAsync(string userId, GroupSignal request, WebSocket socket)
+        protected override async Task HandleAsync(
+            string userId,
+            GroupSignal request,
+            WebSocket socket,
+            CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(request.PeerId)) return;
-            await _broadcastServices.SendMessageToUserAsync(request.PeerId, new
-            {
-                Method = "group_signal",
-                Params = new
-                {   
-                    roomId = request.SessionId,
-                    SenderId = userId,
-                    PeerName = request.PeerName,
-                    PeerId = userId,
-                    SignalType = request.SignalType,
-                    sdp = request.sdp,
-                    Candidate = request.Candidate,
-                    sdpMid = request.sdpMid ,
-                    SdpMLineIndex = request.SdpMLineIndex
-                }
-            });
+
+            await _outgoingMessage.SendToUserAsync(
+                request.PeerId,
+                new OutgoingMessage(
+                    request.PeerId,
+                    new
+                    {
+                        roomId = request.SessionId,
+                        SenderId = userId,
+                        PeerName = request.PeerName,
+                        PeerId = userId,
+                        SignalType = request.SignalType,
+                        sdp = request.sdp,
+                        Candidate = request.Candidate,
+                        sdpMid = request.sdpMid,
+                        SdpMLineIndex = request.SdpMLineIndex,
+                        RoomId = request.SessionId,
+                    },
+                    "group_signal"),
+                cancellationToken);
         }
     }
 }

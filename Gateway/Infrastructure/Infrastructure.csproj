@@ -13,6 +13,10 @@
     <PackageReference Include="MessagePack" Version="3.1.4" />
     <PackageReference Include="MessagePack.Annotations" Version="3.1.4" />
 	  <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.6" />
+	  <PackageReference Include="Microsoft.Orleans.Client" Version="8.2.0" />
+	  <PackageReference Include="Microsoft.Orleans.Reminders" Version="8.2.0" />
+	  <PackageReference Include="Microsoft.Orleans.Server" Version="8.2.0" />
+	  <PackageReference Include="Orleans.Providers.MongoDB" Version="8.2.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,6 +26,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Shared\Contracts\Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Repositories\Implementation\" />
   </ItemGroup>
 
 </Project>

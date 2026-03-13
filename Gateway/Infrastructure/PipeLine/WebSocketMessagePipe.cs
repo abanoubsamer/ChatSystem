@@ -41,55 +41,105 @@ namespace Infrastructure.PipeLine
                 throw new InvalidOperationException("Pipe already started");
 
             _fillTask = FillPipeAsync(cancellationToken);
-
             return ReadMessagesAsync(cancellationToken);
         }
 
         private async IAsyncEnumerable<ReadOnlySequence<byte>> ReadMessagesAsync(
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
+            var messageBuffer = new List<byte[]>();
+            int currentMessageLength = -1;
+            int bytesReadSoFar = 0;
+
             while (!cancellationToken.IsCancellationRequested)
             {
                 ReadResult result = await _pipe.Reader.ReadAsync(cancellationToken);
+                var buffer = result.Buffer;
 
-                if (TryExtractMessage(result, out var message, out bool isOversized))
+                if (buffer.IsEmpty && result.IsCompleted)
+                    yield break;
+
+                // Process all complete messages in the buffer
+                while (true)
                 {
-                    if (isOversized)
+                    if (currentMessageLength == -1)
                     {
-                        _logger.LogWarning("Message exceeded maximum size of {MaxSize}", _maxMessageSize);
-                        yield break;
+                        // Need to read message length (first 4 bytes)
+                        if (buffer.Length < 4)
+                            break; // Wait for more data
+
+                        // Read the length prefix
+                        var lengthBytes = buffer.Slice(0, 4);
+                        currentMessageLength = ReadInt32BigEndian(lengthBytes);
+                        buffer = buffer.Slice(4);
+                        bytesReadSoFar = 0;
+                        messageBuffer.Clear();
                     }
 
-                    yield return message;
+                    // Calculate how many bytes we need to complete this message
+                    int bytesNeeded = currentMessageLength - bytesReadSoFar;
+
+                    if (buffer.Length >= bytesNeeded)
+                    {
+                        // We have a complete message
+                        var messagePart = buffer.Slice(0, bytesNeeded);
+
+                        // Copy message data
+                        if (messagePart.IsSingleSegment)
+                        {
+                            messageBuffer.Add(messagePart.First.ToArray());
+                        }
+                        else
+                        {
+                            var tempBuffer = new byte[bytesNeeded];
+                            messagePart.CopyTo(tempBuffer);
+                            messageBuffer.Add(tempBuffer);
+                        }
+
+                        // Combine all parts
+                        var completeMessage = new byte[currentMessageLength];
+                        int offset = 0;
+                        foreach (var part in messageBuffer)
+                        {
+                            part.CopyTo(completeMessage, offset);
+                            offset += part.Length;
+                        }
+
+                        // Yield the complete message
+                        yield return new ReadOnlySequence<byte>(completeMessage);
+
+                        // Prepare for next message
+                        buffer = buffer.Slice(bytesNeeded);
+                        currentMessageLength = -1;
+                        messageBuffer.Clear();
+                        bytesReadSoFar = 0;
+                    }
+                    else
+                    {
+                        // Partial message - store what we have and wait for more
+                        if (!buffer.IsEmpty)
+                        {
+                            var tempBuffer = new byte[buffer.Length];
+                            buffer.CopyTo(tempBuffer);
+                            messageBuffer.Add(tempBuffer);
+                            bytesReadSoFar += (int)buffer.Length;
+                        }
+                        break;
+                    }
                 }
+
+                _pipe.Reader.AdvanceTo(buffer.Start, buffer.End);
 
                 if (result.IsCompleted)
                     yield break;
             }
         }
 
-        private bool TryExtractMessage(
-            ReadResult result,
-            out ReadOnlySequence<byte> message,
-            out bool isOversized)
+        private static int ReadInt32BigEndian(ReadOnlySequence<byte> bytes)
         {
-            message = default;
-            isOversized = false;
-
-            var buffer = result.Buffer;
-
-            if (buffer.IsEmpty)
-                return false;
-
-            if (buffer.Length > _maxMessageSize)
-            {
-                isOversized = true;
-                return true;
-            }
-
-            message = buffer;
-            _pipe.Reader.AdvanceTo(buffer.End);
-            return true;
+            Span<byte> temp = stackalloc byte[4];
+            bytes.Slice(0, 4).CopyTo(temp);
+            return (temp[0] << 24) | (temp[1] << 16) | (temp[2] << 8) | temp[3];
         }
 
         private async Task FillPipeAsync(CancellationToken cancellationToken)
@@ -113,20 +163,27 @@ namespace Infrastructure.PipeLine
             while (!cancellationToken.IsCancellationRequested &&
                    _socket.State == WebSocketState.Open)
             {
-                Memory<byte> memory = _pipe.Writer.GetMemory(512);
+                Memory<byte> memory = _pipe.Writer.GetMemory(4096);
 
-                ValueWebSocketReceiveResult result = await _socket.ReceiveAsync(memory, cancellationToken);
+                var result = await _socket.ReceiveAsync(memory, cancellationToken);
 
                 if (result.MessageType == WebSocketMessageType.Close)
-                    break;
-
-                _pipe.Writer.Advance(result.Count);
-
-                if (result.EndOfMessage)
                 {
-                    FlushResult flushResult = await _pipe.Writer.FlushAsync(cancellationToken);
-                    if (flushResult.IsCompleted)
-                        break;
+                    return;
+                }
+
+                // Accept both Binary and Text (though we expect Binary)
+                if (result.MessageType == WebSocketMessageType.Binary ||
+                    result.MessageType == WebSocketMessageType.Text)
+                {
+                    _pipe.Writer.Advance(result.Count);
+
+                    if (result.EndOfMessage)
+                    {
+                        var flushResult = await _pipe.Writer.FlushAsync(cancellationToken);
+                        if (flushResult.IsCompleted || flushResult.IsCanceled)
+                            break;
+                    }
                 }
             }
         }

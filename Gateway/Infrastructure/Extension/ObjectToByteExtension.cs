@@ -5,19 +5,14 @@ namespace Infrastructure.Extension
 {
     public static class ObjectToByteExtension
     {
+        // اعمله static readonly مرة واحدة بس
+        private static readonly MessagePackSerializerOptions _options =
+            MessagePackSerializerOptions.Standard
+                .WithResolver(ContractlessStandardResolver.Instance);
 
         public static byte[] ToByteArray(this object obj)
         {
-            if (obj == null)
-            {
-                throw new ArgumentNullException(nameof(obj), "Object cannot be null");
-            }
-          
-          
-            var options = MessagePackSerializerOptions.Standard
-                              .WithResolver(ContractlessStandardResolver.Instance);
-                             
-            return MessagePackSerializer.Serialize(obj, options);
+            return MessagePackSerializer.Serialize(obj, _options); 
         }
     }
 }

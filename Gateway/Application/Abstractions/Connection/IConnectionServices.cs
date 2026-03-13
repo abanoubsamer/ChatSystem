@@ -1,4 +1,6 @@
-﻿    using System.Collections.Generic;
+﻿using Application.Dtos;
+using Application.Messaging;
+using System.Collections.Generic;
 using System.Net.WebSockets;
 using System.Text.RegularExpressions;
 
@@ -6,17 +8,28 @@ namespace Application.Abstractions.Connection
 {
     public interface IConnectionServices
     {
-        public bool AddConnection(string userId, WebSocket socket);
-        IEnumerable<WebSocket> GetUserSockets(string userId);
-        public void RemoveConnection(string userId, WebSocket socket);
+        // ─── Connection Lifecycle ─────────────────────────────────────────────────
+        Task<string> ConnectAsync(string userId, WebSocket socket, CancellationToken ct = default);
+        Task<string> ConnectAsync(string userId, MessageContext context, CancellationToken ct = default); // جديد
+        Task DisconnectAsync(string userId, string connectionId, CancellationToken ct = default);
 
-        public void RemoveUserFromGroup(string userId, string groupName);
-        public void RemoveGroup(string groupName);
+        // ─── Socket Operations ────────────────────────────────────────────────────
+        IReadOnlyList<WebSocket> GetUserSockets(string userId);
+        IReadOnlyList<MessageContext> GetUserContexts(string userId); // جديد
+        MessageContext? GetContext(string connectionId); // جديد
+        bool HasLocalConnections(string userId);
 
-        public IEnumerable<string> GetUsersInGroup(string groupName);
-        public int GetGroupCount(string groupName);
+        // ─── Group Operations ─────────────────────────────────────────────────────
+        Task JoinGroupAsync(string userId, string groupName, CancellationToken ct = default);
+        Task LeaveGroupAsync(string userId, string groupName, CancellationToken ct = default);
+        Task<IReadOnlySet<string>> GetUsersInGroupAsync(string groupName, CancellationToken ct = default);
+        Task<int> GetGroupCountAsync(string groupName, CancellationToken ct = default);
+        Task RegisterInGroupAsync(IReadOnlyList<string> userIds, string groupName, CancellationToken ct = default);
+        Task RegisterInGroupsAsync(string userId, IReadOnlyList<string> groupNames, CancellationToken ct = default);
 
-        public void AddUserToGroup(string userId, string groupName);
-        public void RegisterInGroups(string userId,  List<string> groupName);
+        // ─── Presence ────────────────────────────────────────────────────────────
+        Task<UserPresence> GetUserPresenceAsync(string userId, CancellationToken ct = default);
+        Task<GroupPresence> GetGroupPresenceAsync(string groupName, CancellationToken ct = default);
+
     }
 }

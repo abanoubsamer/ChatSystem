@@ -10,7 +10,11 @@ namespace Application.Abstractions.Handler.Dispatcher
 {
     public interface IMethodDispatcher
     {
-        Task DispatchAsync(string userId, string methodName,
-            JsonElement parameters, WebSocket socket);
+        public Task DispatchAsync(
+               string userId,
+               string methodName,
+               byte[] parameters,
+               WebSocket socket,
+               CancellationToken cancellationToken = default);
     }
 }

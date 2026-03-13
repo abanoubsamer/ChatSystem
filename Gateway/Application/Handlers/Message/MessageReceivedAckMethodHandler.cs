@@ -17,7 +17,8 @@ namespace Application.Handlers.Message
             _publisher = publisher;
         }
 
-        protected override async Task HandleAsync(string userId, MessageReceivedAckEvent request, WebSocket socket)
+
+        protected async override Task HandleAsync(string userId, MessageReceivedAckEvent request, WebSocket socket, CancellationToken cancellationToken = default)
         {
             if (request?.ChatId != null)
             {
