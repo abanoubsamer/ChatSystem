@@ -88,9 +88,11 @@ namespace Application.Messaging
         {
             frame = default;
 
-            // لو لسه مقرأش الـ length
+            // هنا انا هقرائ ال headeer علشان اشوف ال Length و علشان اشوف ال Payload
             if (expectedLength == null)
             {
+                // هنا انا لازم اتاكد من ال freams structer بتاعي ان الرساله مبعوته زي مانا عاوز 
+                // 
                 if (buffer.Length < MessageFrame.HeaderLength)
                     return false;
 
@@ -100,24 +102,31 @@ namespace Application.Messaging
                 // اقرأ الطول (أول 4 بايت) - استخدام SequenceReader للكفاءة
                 var reader = new SequenceReader<byte>(header);
 
+                // هنا انا بقوله اقراء اول 4bite يعني اقراء int
                 if (!reader.TryReadBigEndian(out int length))
                     return false;
 
+                //هنا بعد ما القراء بتاعت ال length خلصت كده ال pointer واقف عند byte 4 هقول اقراء كمان byte كده واقف عند byte 5 => type
                 if (!reader.TryRead(out byte typeByte))
                     return false;
 
                 var type = (FrameType)typeByte;
 
                 expectedLength = length;
+               
                 currentType = type;
+
+                // هنا انا هقسم ال Header عن ال paylod خلاص كده ال payload بقا ال buffer
                 buffer = buffer.Slice(MessageFrame.HeaderLength);
 
                 // جهز الـ rented buffer
                 EnsureRentedBufferCapacity(expectedLength.Value);
+                // بدايه ال payload  ده pointer واقف عندها علشان يلف عليها و لو طويله يجمعها
                 _bufferPosition = 0;
             }
 
             // اجمع البيانات
+          
             var bytesNeeded = expectedLength.Value - _bufferPosition;
             var bytesAvailable = (int)Math.Min(bytesNeeded, buffer.Length);
 
@@ -147,10 +156,9 @@ namespace Application.Messaging
                 // إنشاء MessageFrame دون نسخ إضافي
                 frame = new MessageFrame(
                     currentType!.Value,
-                    new ReadOnlyMemory<byte>(_rentedBuffer, 0, expectedLength.Value)
+                      _rentedBuffer.AsSpan(0, expectedLength.Value).ToArray()
                 );
 
-                // بنحتفظ بالـ rented buffer للـ frame التالي
                 expectedLength = null;
                 currentType = null;
                 _bufferPosition = 0;
@@ -160,6 +168,8 @@ namespace Application.Messaging
             return false;
         }
 
+    
+        
         private void EnsureRentedBufferCapacity(int requiredSize)
         {
             if (_rentedBuffer == null || _rentedBuffer.Length < requiredSize)
@@ -225,7 +235,7 @@ namespace Application.Messaging
                     {
                         var flushResult = await _pipe.Writer.FlushAsync(_disposeCts.Token);
                         if (flushResult.IsCompleted || flushResult.IsCanceled)
-                            break;
+                               break;
                     }
                 }
             }

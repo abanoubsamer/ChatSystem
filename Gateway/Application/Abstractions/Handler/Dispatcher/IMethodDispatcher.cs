@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Application.Messaging;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.WebSockets;
@@ -11,10 +12,9 @@ namespace Application.Abstractions.Handler.Dispatcher
     public interface IMethodDispatcher
     {
         public Task DispatchAsync(
-               string userId,
+               MessageContext context,
                string methodName,
                byte[] parameters,
-               WebSocket socket,
                CancellationToken cancellationToken = default);
     }
 }

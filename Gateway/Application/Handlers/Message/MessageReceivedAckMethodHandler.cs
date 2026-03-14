@@ -1,5 +1,6 @@
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
+using Application.Messaging;
 using Contracts.Message.Command;
 using Contracts.Message.Events;
 using System.Net.WebSockets;
@@ -18,7 +19,7 @@ namespace Application.Handlers.Message
         }
 
 
-        protected async override Task HandleAsync(string userId, MessageReceivedAckEvent request, WebSocket socket, CancellationToken cancellationToken = default)
+        protected override async Task HandleAsync(MessageContext context, MessageReceivedAckEvent request, CancellationToken ct = default)
         {
             if (request?.ChatId != null)
             {
@@ -28,7 +29,7 @@ namespace Application.Handlers.Message
                     MessageId = request.MessageId,
                     SanderId = request.SanderId,
                     DeliveredAt = request.ReceivedAt,
-                    ReceiverId = userId
+                    ReceiverId = context.UserId
                 });
             }
         }

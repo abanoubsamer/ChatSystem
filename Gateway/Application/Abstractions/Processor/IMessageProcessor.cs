@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Application.Messaging;
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,9 +12,8 @@ namespace Application.Abstractions.Processor
     public interface IMessageProcessor
     {
         Task ProcessAsync(
-              string userId,
-              ReadOnlyMemory<byte> message,
-              WebSocket socket,
-              CancellationToken cancellationToken);
+           MessageContext context,
+           ReadOnlyMemory<byte> message,
+           CancellationToken cancellationToken);
     }
 }

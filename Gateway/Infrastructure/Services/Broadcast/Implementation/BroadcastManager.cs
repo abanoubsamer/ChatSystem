@@ -38,12 +38,12 @@ namespace Infrastructure.Services.Broadcast.Implementation
             {
                 try
                 {
-                    // استخدام الدالة المختصرة في MessageContext
-                    await context.SendAsync(message.ToArray(), FrameType.Message, ct);
-                }
+            
+                   await context.SendRawAsync(message, FrameType.Message, ct);
+            }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    // Log if needed - context already handled in SendAsync
+                    
                 }
             }
 
@@ -62,7 +62,7 @@ namespace Infrastructure.Services.Broadcast.Implementation
             {
                 try
                 {
-                    await context.SendAsync(message.ToArray(), FrameType.Message, token);
+                    await context.SendRawAsync(message, FrameType.Message, token);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -122,7 +122,7 @@ namespace Infrastructure.Services.Broadcast.Implementation
                     }
                     catch (WebSocketException)
                     {
-                        // Socket اتقفل — نكمل باقي الـ sockets
+                        
                     }
                 });
             }

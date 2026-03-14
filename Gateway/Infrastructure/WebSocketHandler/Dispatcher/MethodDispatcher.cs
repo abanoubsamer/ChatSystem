@@ -1,5 +1,6 @@
 ﻿using Application.Abstractions.Handler.Dispatcher;
 using Application.Abstractions.Handler.Methods;
+using Application.Messaging;
 using MassTransit.Transports.Fabric;
 using Microsoft.Extensions.Logging;
 using System;
@@ -29,29 +30,47 @@ namespace Infrastructure.WebSocketHandler.Dispatcher
 
             _logger.LogInformation("Registered {Count} method handlers", _handlers.Count);
         }
-        public async Task DispatchAsync(string userId, string methodName,
-                                byte[] parameters, WebSocket socket, CancellationToken ct)
+        public async Task DispatchAsync(
+            MessageContext context,
+            string methodName,
+            byte[] parameters,
+            CancellationToken ct)
         {
             if (!_handlers.TryGetValue(methodName, out var handler))
             {
-                _logger.LogWarning("Unknown method '{Method}' from {UserId}", methodName, userId);
+                _logger.LogWarning(
+                    "Unknown method '{Method}' from user {UserId} | connectionId={ConnectionId}",
+                    methodName, context.UserId, context.ConnectionId);
+
+                // ✅ نبلغ الـ client إن الـ method مش موجود
+                await context.SendErrorAsync(
+                    Guid.NewGuid().ToString("N"),
+                    "UNKNOWN_METHOD",
+                    $"Method '{methodName}' is not supported",
+                     ct);
                 return;
             }
 
             try
             {
-                await handler.Handle(userId, parameters, socket, ct);
+                await handler.Handle(context, parameters, ct);
             }
             catch (OperationCanceledException)
             {
-                throw; // دي معقولة — ابعتها للفوق
+                throw;
             }
             catch (Exception ex)
             {
-                // ❌ مش هنقفل الـ connection كلها بسبب handler واحد
                 _logger.LogError(ex,
-                    "Handler '{Method}' failed for user {UserId}", methodName, userId);
+                    "Handler '{Method}' failed | userId={UserId} | connectionId={ConnectionId}",
+                    methodName, context.UserId, context.ConnectionId);
 
+                // ✅ نبلغ الـ client بدل ما الـ error يضيع في silence
+                await context.SendErrorAsync(
+                    Guid.NewGuid().ToString("N"),
+                    "HANDLER_ERROR",
+                    "An error occurred processing your request",
+                     ct);
             }
         }
 

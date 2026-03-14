@@ -48,84 +48,90 @@ namespace Infrastructure.Processor
         }
 
         public async Task ProcessAsync(
-            string userId,
+            MessageContext context,
             ReadOnlyMemory<byte> message,
-            WebSocket socket,
             CancellationToken cancellationToken)
         {
             using var activity = _activitySource.StartActivity(
-                 "ProcessMessage",
-                 ActivityKind.Server,
-                 parentContext: default,
-                 tags: new[]
-                 {
-                    new KeyValuePair<string, object?>("user.id", userId),
+                "ProcessMessage",
+                ActivityKind.Server,
+                parentContext: default,
+                tags: new[]
+                {
+                    new KeyValuePair<string, object?>("user.id", context.UserId),
+                    new KeyValuePair<string, object?>("connection.id", context.ConnectionId),
                     new KeyValuePair<string, object?>("message.size", message.Length),
-                 });
+                });
 
             var stopwatch = Stopwatch.StartNew();
 
             try
             {
-                await ProcessCoreAsync(userId, message, socket, cancellationToken);
-
+                await ProcessCoreAsync(context, message, cancellationToken);
                 stopwatch.Stop();
-
-                RecordSuccessMetrics(userId, stopwatch.Elapsed, activity);
+                RecordSuccessMetrics(context.UserId, stopwatch.Elapsed, activity);
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                RecordFailureMetrics(userId, stopwatch.Elapsed, ex, activity);
+                RecordFailureMetrics(context.UserId, stopwatch.Elapsed, ex, activity);
                 throw;
             }
         }
 
         private async Task ProcessCoreAsync(
-            string userId,
-            ReadOnlyMemory<byte> message,
-            WebSocket socket,
-            CancellationToken cancellationToken)
+             MessageContext context,
+             ReadOnlyMemory<byte> message,
+             CancellationToken cancellationToken)
         {
             // Step 1: Rate Limiting
-            if (!await CheckRateLimitAsync(userId, socket, cancellationToken))
+            if (!await CheckRateLimitAsync(context, cancellationToken))
                 return;
 
             // Step 2: Decompress
-            var payload = await DecompressIfNeededAsync(userId, message, cancellationToken);
+            var payload = await DecompressIfNeededAsync(context.UserId, message, cancellationToken);
 
             // Step 3: Deserialize
             var envelope = DeserializeMessage(payload);
 
             if (envelope == null || !envelope.IsValid)
             {
-                _logger.LogWarning("Invalid message from user {UserId}", userId);
+                _logger.LogWarning(
+                    "Invalid message from user {UserId} | connectionId={ConnectionId}",
+                    context.UserId, context.ConnectionId);
+
+                // ✅ نستخدم context.SendErrorAsync مباشرةً بدل custom SendErrorAsync
+                await context.SendErrorAsync(
+                    Guid.NewGuid().ToString("N"),
+                    "INVALID_MESSAGE",
+                    "Message format is invalid",
+                    cancellationToken);
+
                 _metrics.IncrementCounter(
                     "message.validation.errors",
-                    new KeyValuePair<string, object?>("user.id", userId));
+                    new KeyValuePair<string, object?>("user.id", context.UserId));
                 return;
             }
 
             // Step 4: Dispatch
             await _dispatcher.DispatchAsync(
-                userId,
+                context,
                 envelope.Method,
                 envelope.Params,
-                socket);
+                cancellationToken);
 
             _metrics.IncrementCounter(
                 "message.dispatched",
-                new KeyValuePair<string, object?>("user.id", userId),
+                new KeyValuePair<string, object?>("user.id", context.UserId),
                 new KeyValuePair<string, object?>("method", envelope.Method));
         }
 
         private async Task<bool> CheckRateLimitAsync(
-            string userId,
-            WebSocket socket,
+            MessageContext context,
             CancellationToken cancellationToken)
         {
             var result = await _rateLimiter.AcquireAsync(
-                userId,
+                context.UserId,
                 MaxRequestsPerWindow,
                 RateLimitWindow,
                 cancellationToken);
@@ -134,18 +140,18 @@ namespace Infrastructure.Processor
                 return true;
 
             _logger.LogWarning(
-                "Rate limit exceeded for user {UserId}. Retry after {RetryAfter}",
-                userId,
-                result.RetryAfter);
+                "Rate limit exceeded | userId={UserId} | connectionId={ConnectionId} | retryAfter={RetryAfter}",
+                context.UserId, context.ConnectionId, result.RetryAfter);
 
             _metrics.IncrementCounter(
                 "ratelimit.exceeded",
-                new KeyValuePair<string, object?>("user.id", userId));
+                new KeyValuePair<string, object?>("user.id", context.UserId));
 
-            await SendErrorAsync(
-                socket,
+            // ✅ context.SendErrorAsync بدل raw socket
+            await context.SendErrorAsync(
+                Guid.NewGuid().ToString("N"),
                 "RATE_LIMITED",
-                $"Too many requests. Retry after {result.RetryAfter.TotalSeconds}s",
+                $"Too many requests. Retry after {result.RetryAfter.TotalSeconds:F1}s",
                 cancellationToken);
 
             return false;
@@ -186,32 +192,6 @@ namespace Infrastructure.Processor
                 Console.WriteLine($"Failed to deserialize message: {ex.Message}");
                 return null;
             }
-        }
-        private static async Task SendErrorAsync(
-             WebSocket socket,
-             string code,
-             string message,
-             CancellationToken ct)
-        {
-            if (socket.State != WebSocketState.Open) return;
-
-            // اكتب على buffer من الـ pool مباشرة
-            using var buffer = new MemoryStream(256);
-            using (var writer = new Utf8JsonWriter(buffer))
-            {
-                writer.WriteStartObject();
-                writer.WriteString("error", code);
-                writer.WriteString("message", message);
-                writer.WriteEndObject();
-            }
-
-            var bytes = buffer.GetBuffer().AsMemory(0, (int)buffer.Length);
-
-            await socket.SendAsync(
-                bytes,
-                WebSocketMessageType.Text,
-                endOfMessage: true,
-                ct);
         }
 
         private void RecordSuccessMetrics(string userId, TimeSpan duration, Activity? activity)

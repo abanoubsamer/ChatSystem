@@ -1,5 +1,6 @@
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
+using Application.Messaging;
 using Contracts.Snapshot.Chat.Events;
 using System.Net.WebSockets;
 
@@ -16,8 +17,7 @@ namespace Application.Handlers.Snapshots
             _publisher = publisher;
         }
 
-        protected override async Task HandleAsync(string userId,
-            ReceivedSnapACKBatchEvent request, WebSocket socket, CancellationToken cancellationToken = default)
+        protected override async Task HandleAsync(MessageContext context, ReceivedSnapACKBatchEvent request, CancellationToken ct = default)
         {
             await _publisher.PublishAsync(request);
         }

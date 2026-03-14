@@ -5,6 +5,7 @@ using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
 using Application.Abstractions.Session;
 using Application.Dtos.Message;
+using Application.Messaging;
 using Contracts.Call.Event;
 using Contracts.Call.Session;
 using Contracts.Call.Signals;
@@ -36,64 +37,55 @@ namespace Application.Handlers.Call
             _ringTimeout = ringTimeout;
         }
 
-        protected override async Task HandleAsync(
-            string userId,
-            JoinGroupSignal request,
-            WebSocket socket,
-            CancellationToken cancellationToken = default)
+        protected override async Task HandleAsync(MessageContext context, JoinGroupSignal request, CancellationToken ct = default)
         {
             var session = await _sessionStore.GetAsync(request.SessionId);
 
-            // ── Guard ─────────────────────────────────────────────────────────────
             if (session == null)
             {
-                await _outgoingMessage.SendToUserAsync(userId, new OutgoingMessage(
-                    userId,
+                await _outgoingMessage.SendToUserAsync(context.UserId, new OutgoingMessage(
+                    context.UserId,
                     new { SessionId = request.SessionId, Reason = "session_not_found", Message = "This call no longer exists." },
-                    "join_failed"), cancellationToken);
+                    "join_failed"), ct);
                 return;
             }
 
-            // ── ضيف الـ user للـ RoomGrain ────────────────────────────────────────
-            await _connectionServices.JoinGroupAsync(userId, request.SessionId, cancellationToken);
+            await _connectionServices.JoinGroupAsync(context.UserId, request.SessionId, ct);
 
-            if (!session.Participants.Contains(userId))
+            if (!session.Participants.Contains(context.UserId))
             {
-                session.Participants.Add(userId);
+                session.Participants.Add(context.UserId);
                 await _sessionStore.SetAsync(session.SessionId, session);
             }
 
-            // ── Cancel ring timer ─────────────────────────────────────────────────
             _ringTimeout.CancelRingTimer(request.SessionId);
 
-            // ── أول حد يجاوب → أبلّغ الـ creator ────────────────────────────────
+            // أول حد يجاوب → أبلّغ الـ creator
             if (session.Participants.Count == 2)
             {
                 await _outgoingMessage.SendToUserAsync(session.CreatorId, new OutgoingMessage(
                     session.CreatorId,
-                    new { SessionId = request.SessionId, FirstJoinerId = userId },
-                    "call_answered"), cancellationToken);
+                    new { SessionId = request.SessionId, FirstJoinerId = context.UserId },
+                    "call_answered"), ct);
             }
 
-            // ── Publish event ─────────────────────────────────────────────────────
             await _publisher.PublishAsync(new ParticipantJoinedEvent
             {
                 SessionId = request.SessionId,
-                UserId = userId,
+                UserId = context.UserId,
                 JoinedAt = DateTime.UtcNow
             });
 
-            // ── أبلّغ باقي الـ members ────────────────────────────────────────────
-            var existingMembers = await _connectionServices.GetUsersInGroupAsync(request.SessionId, cancellationToken);
+            var existingMembers = await _connectionServices.GetUsersInGroupAsync(request.SessionId, ct);
 
             await _outgoingMessage.SendToRoomAsync(
-                excludeUserId: userId,
+                excludeUserId: context.UserId,
                 roomId: request.SessionId,
                 message: new OutgoingMessage(
                     request.SessionId,
-                    new { SessionId = request.SessionId, UserId = userId, ExistingMembers = existingMembers },
+                    new { SessionId = request.SessionId, UserId = context.UserId, ExistingMembers = existingMembers },
                     "user_joined_call"),
-                ct: cancellationToken);
+                ct: ct);
         }
     }
 }

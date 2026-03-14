@@ -37,6 +37,7 @@ namespace Application.Messaging
 
                 // 2. إنشاء Frame
                 var frame = new MessageFrame(type, payload);
+               
                 var frameBytes = frame.ToByteArray();
 
                 // 3. إرسال
@@ -109,6 +110,44 @@ namespace Application.Messaging
         public async Task WritePongAsync(CancellationToken cancellationToken = default)
         {
             await WriteMessageAsync<object?>(null, FrameType.Pong, cancellationToken);
+        }
+
+        public async Task WriteRawAsync(
+            ReadOnlyMemory<byte> payload,
+            FrameType type = FrameType.Message,
+            CancellationToken cancellationToken = default)
+        {
+            if (_socket.State != WebSocketState.Open)
+                return;
+
+            try
+            {
+                // الـ payload اتـserialize بالفعل — بنلف الـ frame header بس
+                var frame = new MessageFrame(type, payload);
+                var frameBytes = frame.ToByteArray();
+
+                await _writeLock.WaitAsync(cancellationToken);
+                try
+                {
+                    await _socket.SendAsync(
+                        frameBytes,
+                        WebSocketMessageType.Binary,
+                        true,
+                        cancellationToken);
+
+                    _logger.LogDebug("Sent raw frame: Type={Type}, Size={Size}",
+                        type, frameBytes.Length);
+                }
+                finally
+                {
+                    _writeLock.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send raw message");
+                throw;
+            }
         }
     }
 }

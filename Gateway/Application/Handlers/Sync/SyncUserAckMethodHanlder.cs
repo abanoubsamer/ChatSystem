@@ -1,5 +1,6 @@
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
+using Application.Messaging;
 using Contracts.Snapshot.Chat.Command;
 using System.Net.WebSockets;
 
@@ -16,8 +17,7 @@ namespace Application.Handlers.Sync
             _publisher = publisher;
         }
 
-        protected override async Task HandleAsync(string userId, SyncUserVersionCommand request,
-            WebSocket socket, CancellationToken cancellationToken = default)
+        protected override async Task HandleAsync(MessageContext context, SyncUserVersionCommand request, CancellationToken ct = default)
         {
             await _publisher.PublishAsync(request);
         }

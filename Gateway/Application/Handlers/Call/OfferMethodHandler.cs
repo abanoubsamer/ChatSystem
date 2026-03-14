@@ -5,6 +5,7 @@ using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
 using Application.Dtos.Connection;
 using Application.Dtos.Message;
+using Application.Messaging;
 using Contracts.Call.Event;
 using Contracts.Call.Session;
 using Contracts.Call.Signals;
@@ -30,11 +31,7 @@ namespace Application.Handlers.Call
             _publisher = publisher;
         }
 
-        protected override async Task HandleAsync(
-            string userId,
-            OfferSignal request,
-            WebSocket socket,
-            CancellationToken cancellationToken = default)
+        protected override async Task HandleAsync(MessageContext context, OfferSignal request, CancellationToken ct = default)
         {
             var sessionId = Guid.NewGuid().ToString();
 
@@ -42,16 +39,16 @@ namespace Application.Handlers.Call
             {
                 SessionId = sessionId,
                 Type = SessionType.Direct,
-                CreatorId = userId,
+                CreatorId = context.UserId,
                 CreatedAt = DateTime.UtcNow,
-                Participants = new List<string> { userId }
+                Participants = new List<string> { context.UserId }
             });
 
             // fire & forget
             _ = _publisher.PublishAsync(new SessionCreatedEvent
             {
                 SessionId = sessionId,
-                CreatorId = userId,
+                CreatorId = context.UserId,
                 Type = "direct",
                 TargetUserId = request.TargetUserId,
                 ChatId = request.ChatId
@@ -61,9 +58,9 @@ namespace Application.Handlers.Call
                 request.TargetUserId,
                 new OutgoingMessage(
                     request.TargetUserId,
-                    new { SessionId = sessionId, SenderId = userId, Sdp = request.Sdp },
+                    new { SessionId = sessionId, SenderId = context.UserId, Sdp = request.Sdp },
                     "offer"),
-                cancellationToken);
+                ct);
         }
     }
 }

@@ -1,5 +1,6 @@
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
+using Application.Messaging;
 using Contracts.Message.Command;
 using System.Net.WebSockets;
 
@@ -15,9 +16,10 @@ namespace Application.Handlers.Message
         {
             _publisher = publisher;
         }
-       
 
-        protected async override Task HandleAsync(string userId, MessageSeenACKBatchCommend data, WebSocket socket, CancellationToken cancellationToken = default)
+
+        protected override async Task HandleAsync(MessageContext context, 
+            MessageSeenACKBatchCommend data, CancellationToken ct = default)
         {
             await _publisher.PublishAsync(data);
         }

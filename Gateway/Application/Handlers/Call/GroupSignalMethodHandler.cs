@@ -1,6 +1,7 @@
     using Application.Abstractions.Broadcast;
 using Application.Abstractions.Handler.Methods;
 using Application.Dtos.Message;
+using Application.Messaging;
 using Contracts.Call.Signals;
 using System.Net.WebSockets;
 
@@ -15,11 +16,7 @@ namespace Application.Handlers.Call
         public GroupSignalMethodHandler(IOutgoingMessageService outgoingMessage)
             => _outgoingMessage = outgoingMessage;
 
-        protected override async Task HandleAsync(
-            string userId,
-            GroupSignal request,
-            WebSocket socket,
-            CancellationToken cancellationToken = default)
+        protected override async Task HandleAsync(MessageContext context, GroupSignal request, CancellationToken ct = default)
         {
             if (string.IsNullOrEmpty(request.PeerId)) return;
 
@@ -30,9 +27,9 @@ namespace Application.Handlers.Call
                     new
                     {
                         roomId = request.SessionId,
-                        SenderId = userId,
+                        SenderId = context.UserId,
                         PeerName = request.PeerName,
-                        PeerId = userId,
+                        PeerId = context.UserId,
                         SignalType = request.SignalType,
                         sdp = request.sdp,
                         Candidate = request.Candidate,
@@ -41,7 +38,7 @@ namespace Application.Handlers.Call
                         RoomId = request.SessionId,
                     },
                     "group_signal"),
-                cancellationToken);
+                ct);
         }
     }
 }

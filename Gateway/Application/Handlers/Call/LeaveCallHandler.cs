@@ -5,6 +5,7 @@ using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
 using Application.Abstractions.Session;
 using Application.Dtos.Message;
+using Application.Messaging;
 using Contracts.Call.Event;
 using Contracts.Call.Session;
 using Contracts.Call.Signals;
@@ -36,48 +37,40 @@ namespace Application.Handlers.Call
             _ringTimeout = ringTimeout;
         }
 
-        protected override async Task HandleAsync(
-            string userId,
-            LeaveCallSignal request,
-            WebSocket socket,
-            CancellationToken cancellationToken = default)
+        protected override async Task HandleAsync(MessageContext context, LeaveCallSignal request, CancellationToken ct = default)
         {
             var session = await _sessionStore.GetAsync(request.SessionId);
             if (session == null) return;
 
-            // ── شيل الـ user من الـ RoomGrain ────────────────────────────────────
-            await _connectionServices.LeaveGroupAsync(userId, request.SessionId, cancellationToken);
+            await _connectionServices.LeaveGroupAsync(context.UserId, request.SessionId, ct);
 
-            var remaining = await _connectionServices.GetGroupCountAsync(request.SessionId, cancellationToken);
+            var remaining = await _connectionServices.GetGroupCountAsync(request.SessionId, ct);
 
             if (session.Type == SessionType.Direct || remaining == 0)
             {
-                await EndSessionAsync(session, remaining == 0 ? "last_left" : "peer_left", cancellationToken);
+                await EndSessionAsync(session, remaining == 0 ? "last_left" : "peer_left", ct);
             }
             else
             {
                 await _publisher.PublishAsync(new ParticipantLeftEvent
                 {
                     SessionId = request.SessionId,
-                    UserId = userId,
+                    UserId = context.UserId,
                     RemainingCount = remaining
                 });
 
                 await _outgoingMessage.SendToRoomAsync(
-                    excludeUserId: userId,
+                    excludeUserId: context.UserId,
                     roomId: request.SessionId,
                     message: new OutgoingMessage(
                         request.SessionId,
-                        new { UserId = userId, Remaining = remaining },
+                        new { UserId = context.UserId, Remaining = remaining },
                         "user_left"),
-                    ct: cancellationToken);
+                    ct: ct);
             }
         }
 
-        private async Task EndSessionAsync(
-            SessionCallInfo session,
-            string reason,
-            CancellationToken ct)
+        private async Task EndSessionAsync(SessionCallInfo session, string reason, CancellationToken ct)
         {
             _ringTimeout.CancelRingTimer(session.SessionId);
 
@@ -93,7 +86,6 @@ namespace Application.Handlers.Call
                 Reason = reason
             });
 
-            // أبلّغ الكل بنهاية الـ call (مفيش exclude — الكل لازم يعرف)
             await _outgoingMessage.SendToRoomAsync(
                 excludeUserId: null,
                 roomId: session.SessionId,

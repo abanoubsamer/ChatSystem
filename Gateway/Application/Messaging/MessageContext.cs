@@ -11,12 +11,28 @@ namespace Application.Messaging
 {
     public class MessageContext
     {
+        // ─── Identity ─────────────────────────────────────────────────────────────
         public string ConnectionId { get; } = Guid.NewGuid().ToString("N");
         public string UserId { get; set; } = string.Empty;
+
+
+        // ─── Transport ────────────────────────────────────────────────────────────
         public WebSocket Socket { get; }
         public FrameWriter Writer { get; }
         public FrameReader Reader { get; }
         public CancellationToken ConnectionCancellationToken { get; set; }
+
+        // ─── State ────────────────────────────────────────────────────────────────
+        public ConnectionState State { get; set; } = ConnectionState.Connected;
+        public DateTime ConnectedAt { get; } = DateTime.UtcNow;
+        public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
+
+        // ─── Metrics ─────────────────────────────────────────────────────────────
+        // private fields علشان Interlocked بيحتاج ref على long
+        private long _messagesReceived;
+        private long _messagesSent;
+        public long MessagesReceived => Interlocked.Read(ref _messagesReceived);
+        public long MessagesSent => Interlocked.Read(ref _messagesSent);
 
         // للـ Middleware
         public ConcurrentDictionary<string, object> Items { get; } = new();
@@ -24,17 +40,10 @@ namespace Application.Messaging
         // للـ Authentication
         public ClaimsPrincipal? User { get; set; }
 
-        // للـ Metrics
-        public DateTime ConnectedAt { get; } = DateTime.UtcNow;
-        public long MessagesReceived { get; set; }
-        public long MessagesSent { get; set; }
-
-        // ✅ حالة الاتصال
-        public ConnectionState State { get; set; } = ConnectionState.Connected;
-
-        // ✅ آخر نشاط
-        public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
-
+  
+    
+   
+   
         public MessageContext(WebSocket socket, FrameWriter writer, FrameReader reader)
         {
             Socket = socket;
@@ -45,29 +54,44 @@ namespace Application.Messaging
         // ✅ دوال Items
         public void Set<T>(string key, T value) => Items[key] = value!;
         public T? Get<T>(string key) => Items.TryGetValue(key, out var value) ? (T)value : default;
-
-        // ✅ دوال مساعدة للـ Metrics
+        // ─── Metrics Helpers ──────────────────────────────────────────────────────
         public void IncrementMessagesReceived()
         {
-            MessagesReceived++;
+            Interlocked.Increment(ref _messagesReceived);
             LastActivityAt = DateTime.UtcNow;
         }
 
         public void IncrementMessagesSent()
         {
-            MessagesSent++;
+            Interlocked.Increment(ref _messagesSent);
             LastActivityAt = DateTime.UtcNow;
         }
 
-        // ✅ دوال التحقق من حالة الاتصال
+
+        // ─── State Helpers ────────────────────────────────────────────────────────
         public bool IsConnected => Socket.State == WebSocketState.Open && State == ConnectionState.Connected;
         public bool IsClosing => Socket.State == WebSocketState.CloseSent || State == ConnectionState.Closing;
+        public bool NeedsHeartbeat(TimeSpan timeout) => DateTime.UtcNow - LastActivityAt > timeout;
 
-        // ✅ دوال إرسال سريعة
+      
+
+        // ─── Send API ─────────────────────────────────────────────────────────────
+
+        /// <summary>يبعت object — بيعمل Serialize داخلياً</summary>
         public Task SendAsync<T>(T message, FrameType type = FrameType.Message, CancellationToken ct = default)
         {
             IncrementMessagesSent();
             return Writer.WriteMessageAsync(message, type, ct);
+        }
+
+        /// <summary>
+        /// يبعت bytes اتـSerialize مسبقاً من MessageSerializer.Serialize()
+        /// بدون serialization تانية — للـ Broadcast و outgoing messages
+        /// </summary>
+        public Task SendRawAsync(ReadOnlyMemory<byte> payload, FrameType type = FrameType.Message, CancellationToken ct = default)
+        {
+            IncrementMessagesSent();
+            return Writer.WriteRawAsync(payload, type, ct);
         }
 
         public Task SendResponseAsync(string messageId, string method, byte[]? data, CancellationToken ct = default)
@@ -94,8 +118,10 @@ namespace Application.Messaging
             return Writer.WritePongAsync(ct);
         }
 
-        // ✅ دوال إدارة الاتصال
-        public async Task CloseAsync(WebSocketCloseStatus status = WebSocketCloseStatus.NormalClosure, string description = "Closing")
+        // ─── Close ────────────────────────────────────────────────────────────────
+        public async Task CloseAsync(
+            WebSocketCloseStatus status = WebSocketCloseStatus.NormalClosure,
+            string description = "Closing")
         {
             State = ConnectionState.Closing;
             try
@@ -108,9 +134,7 @@ namespace Application.Messaging
             }
         }
 
-        // ✅ Heartbeat
-        public bool NeedsHeartbeat(TimeSpan timeout)
-            => DateTime.UtcNow - LastActivityAt > timeout;
+
     }
 
     // ✅ enum لحالة الاتصال

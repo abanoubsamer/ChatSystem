@@ -1,5 +1,4 @@
-﻿
-using Application.Abstractions.Auth;
+﻿using Application.Abstractions.Auth;
 using Application.Abstractions.Broadcast;
 using Application.Abstractions.Broadcast.Abstraction;
 using Application.Abstractions.CallSessionStore;
@@ -10,7 +9,7 @@ using Application.Abstractions.Handler.Dispatcher;
 using Application.Abstractions.Handler.GatewayWebSocket.Ingress;
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Metrics;
-using Application.Abstractions.PipeLine;
+using Application.Abstractions.Pipeline;
 using Application.Abstractions.Processor;
 using Application.Abstractions.Publisher;
 using Application.Abstractions.Queue;
@@ -24,7 +23,8 @@ using Application.Handlers.Sync;
 using Infrastructure.Compression;
 using Infrastructure.Connection.Implementation;
 using Infrastructure.Metrics;
-using Infrastructure.PipeLine;
+using Infrastructure.Pipeline;
+using Infrastructure.Pipeline.Middlewares;
 using Infrastructure.Processor;
 using Infrastructure.RateLimiting;
 using Infrastructure.Repositories.GenaricRepo;
@@ -196,7 +196,7 @@ namespace Infrastructure
             services.AddSingleton<IBroadcastManager, BroadcastManager>();
             services.AddSingleton<IConnectionServices, ConnectionServices>();
             services.AddSingleton<IRingTimeoutService, RingTimeoutService>();
-            services.AddSingleton<IOutgoingMessageService,OutgoingMessageService>();
+            services.AddSingleton<IOutgoingMessageService, OutgoingMessageService>();
 
             // Auth → Singleton ✅ (if thread-safe)
             services.AddSingleton<IAuthServices, AuthServices>();
@@ -206,9 +206,17 @@ namespace Infrastructure
             services.AddSingleton<IRateLimiter, TokenBucketRateLimiter>();
             services.AddSingleton<IMessageCompressor, GzipMessageCompressor>();
 
-            // Pipeline & Processing → Singleton ✅
-            services.AddSingleton<IMessagePipeFactory, WebSocketMessagePipeFactory>();
-            services.AddSingleton<IMessageProcessor, DefaultMessageProcessor>();
+            // ── Message Pipeline ───────────────────────────────────────────────────
+            // الترتيب مهم جداً — بيتنفذوا بالترتيب ده:
+            //   1. MetricsMiddleware     → يقيس وقت كل message (يلف الباقيين)
+            //   2. RateLimitMiddleware   → يوقف لو exceeded (قبل أي شغل)
+            //   3. DecompressionMiddleware → يفك الضغط لو compressed
+            //   4. DispatchMiddleware    → Deserialize + Validate + Dispatch
+            services.AddSingleton<IMessageMiddleware, MetricsMiddleware>();
+            services.AddSingleton<IMessageMiddleware, RateLimitMiddleware>();
+            services.AddSingleton<IMessageMiddleware, DecompressionMiddleware>();
+            services.AddSingleton<IMessageMiddleware, DispatchMiddleware>();
+            services.AddSingleton<IMessagePipeline, MessagePipeline>();
 
             // Method Handlers → ALL SINGLETON ✅
             services.AddSingleton<IMethodHandler, NewMessageMethodHandler>();
@@ -232,10 +240,12 @@ namespace Infrastructure
             services.AddSingleton<IMethodDispatcher, MethodDispatcher>();
 
             // Gateway → Scoped (WebSocket per connection)
-            services.AddScoped<IConnectionManager, WebSocketConnectionManager>();
+            // ✅ IConnectionManager registration removed — WebSocketConnectionManager is dead code.
+            //    GatewayIngressHandler uses IConnectionServices directly.
             services.AddScoped<IGatewayIngressHandler, GatewayIngressHandler>();
 
-     
+
+
             return services;
         }
     }

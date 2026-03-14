@@ -4,6 +4,7 @@ using Application.Abstractions.Connection.Grains;
 using Application.Abstractions.Handler.Methods;
 using Application.Dtos;
 using Application.Dtos.Message;
+using Application.Messaging;
 using Contracts.State.Event.User;
 using Domain;
 using System.Diagnostics;
@@ -26,20 +27,16 @@ namespace Application.Handlers.State
             _grainFactory = grainFactory;
         }
 
-        protected override async Task HandleAsync(
-            string userId,
-            GetUserState request,
-            WebSocket socket,
-            CancellationToken cancellationToken = default)
+        protected override async Task HandleAsync(MessageContext context, GetUserState request, CancellationToken ct = default)
         {
             var presence = await _grainFactory
                 .GetGrain<IUserGrain>(request.UserId)
                 .GetPresenceAsync();
 
             await _outgoingMessage.SendToUserAsync(
-                userId,
+                context.UserId,
                 new OutgoingMessage(
-                    userId,
+                    context.UserId,
                     new UserStateResponse
                     {
                         UserId = request.UserId,
@@ -47,7 +44,7 @@ namespace Application.Handlers.State
                         LastSeen = presence.LastSeenUtc,
                     },
                     "user_state"),
-                cancellationToken);
+                ct);
         }
     }
 }

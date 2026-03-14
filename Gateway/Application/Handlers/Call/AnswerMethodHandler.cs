@@ -4,6 +4,7 @@ using Application.Abstractions.CallSessionStore;
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
 using Application.Dtos.Message;
+using Application.Messaging;
 using Contracts.Call.Event;
 using Contracts.Call.Signals;
 using System.Net.WebSockets;
@@ -31,29 +32,21 @@ namespace Application.Handlers.Call
             _authServices = authServices;
         }
 
-        protected override async Task HandleAsync(
-            string userId,
-            AnswerSignal request,
-            WebSocket socket,
-            CancellationToken cancellationToken = default)
+        protected override async Task HandleAsync(MessageContext context, AnswerSignal request, CancellationToken ct = default)
         {
-            // ── أضيف الـ participant للـ session ──────────────────────────────────
             var session = await _sessionStore.GetAsync(request.SessionId);
-
             if (session == null) return;
 
-            session.Participants.Add(userId);
+            session.Participants.Add(context.UserId);
             await _sessionStore.SetAsync(session.SessionId, session);
 
-            // ── Publish event (fire & forget) ─────────────────────────────────────
             await _publisher.PublishAsync(new ParticipantJoinedEvent
             {
                 SessionId = request.SessionId,
-                UserId = userId,
+                UserId = context.UserId,
                 JoinedAt = DateTime.UtcNow
             });
 
-            // ── أبلّغ الـ target user بالـ answer ────────────────────────────────
             await _outgoingMessage.SendToUserAsync(
                 request.TargetUserId,
                 new OutgoingMessage(
@@ -61,12 +54,12 @@ namespace Application.Handlers.Call
                     new
                     {
                         SessionId = request.SessionId,
-                        SenderId = userId,
+                        SenderId = context.UserId,
                         SenderName = _authServices.GetUserName(),
                         Sdp = request.Sdp
                     },
                     "answer"),
-                cancellationToken);
+                ct);
         }
     }
 }

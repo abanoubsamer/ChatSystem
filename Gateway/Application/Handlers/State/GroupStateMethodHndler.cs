@@ -5,6 +5,7 @@ using Application.Abstractions.Connection.Grains;
 using Application.Abstractions.Handler.Methods;
 using Application.Dtos;
 using Application.Dtos.Message;
+using Application.Messaging;
 using Contracts.State.Event.Group;
 using Domain;
 using System.Net.WebSockets;
@@ -29,35 +30,28 @@ namespace Application.Handlers.State
             _callSessionStore = callSessionStore;
         }
 
-        protected override async Task HandleAsync(
-            string userId,
-            GetGroupState request,
-            WebSocket socket,
-            CancellationToken cancellationToken = default)
+        protected override async Task HandleAsync(MessageContext context, GetGroupState request, CancellationToken ct = default)
         {
-            // الاتنين بيشتغلوا concurrent — مش محتاج تستنى واحدة تخلص عشان تبدأ التانية
+            // الاتنين concurrent
             var presenceTask = _grainFactory.GetGrain<IRoomGrain>(request.GroupId).GetPresenceAsync();
             var sessionIdTask = _callSessionStore.GetActiveSessionByChatIdAsync(request.GroupId);
 
             await Task.WhenAll(presenceTask, sessionIdTask);
 
-            var presence = presenceTask.Result;
-            var sessionId = sessionIdTask.Result;
-
             await _outgoingMessage.SendToUserAsync(
-                userId,
+                context.UserId,
                 new OutgoingMessage(
-                    userId,
+                    context.UserId,
                     new GroupStateResponse
                     {
                         GroupId = request.GroupId,
-                        IsOnline = presence.Status == PresenceStatus.Online,
-                        SessionId = sessionId,
-                        CountOnlineMembers = presence.OnlineCount,
-                        TotalMembers = presence.TotalCount,
+                        IsOnline = presenceTask.Result.Status == PresenceStatus.Online,
+                        SessionId = sessionIdTask.Result,
+                        CountOnlineMembers = presenceTask.Result.OnlineCount,
+                        TotalMembers = presenceTask.Result.TotalCount,
                     },
                     "group_state"),
-                cancellationToken);
+                ct);
         }
     }
 }

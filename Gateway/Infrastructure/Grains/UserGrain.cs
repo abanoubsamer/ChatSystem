@@ -13,14 +13,13 @@ namespace Infrastructure.Grains
         {
             [Id(0)] public bool IsOnline { get; set; }
             [Id(1)] public DateTime? LastSeen { get; set; }
-            // نخزن connectionIds بس — مش WebSocket objects
-            [Id(2)] public HashSet<string> ConnectionIds { get; set; } = new();
+
         }
 
         private readonly IPersistentState<UserState> _state;
         private readonly ILogger<UserGrain> _logger;
 
-        // In-memory fast set (متزامن مع _state.State.ConnectionIds)
+        // In-memory — transient, بتبدأ فاضية عند كل silo activation
         private readonly HashSet<string> _activeConnections = new();
 
         public UserGrain(
@@ -33,20 +32,21 @@ namespace Infrastructure.Grains
 
         public override Task OnActivateAsync(CancellationToken ct)
         {
-            // نعيد بناء الـ in-memory set من الـ persistent state عند الـ activation
-            _activeConnections.UnionWith(_state.State.ConnectionIds);
             return base.OnActivateAsync(ct);
         }
 
         public async Task ConnectAsync(string connectionId)
         {
+            var wasOffline = _activeConnections.Count == 0;
+
             _activeConnections.Add(connectionId);
 
-            _state.State.IsOnline = true;
-            _state.State.LastSeen = DateTime.UtcNow;
-            _state.State.ConnectionIds.Add(connectionId);
-
-            await _state.WriteStateAsync();
+            if (wasOffline)
+            {
+                _state.State.IsOnline = true;
+                _state.State.LastSeen = DateTime.UtcNow;
+                await _state.WriteStateAsync();
+            }
 
             _logger.LogInformation(
                 "User {UserId} connected | connectionId={ConnectionId} | total={Count}",
@@ -56,15 +56,15 @@ namespace Infrastructure.Grains
         public async Task DisconnectAsync(string connectionId)
         {
             _activeConnections.Remove(connectionId);
-            _state.State.ConnectionIds.Remove(connectionId);
 
             if (_activeConnections.Count == 0)
             {
                 _state.State.IsOnline = false;
                 _state.State.LastSeen = DateTime.UtcNow;
-            }
 
-            await _state.WriteStateAsync();
+                await _state.WriteStateAsync();
+            }
+          
 
             _logger.LogInformation(
                 "User {UserId} disconnected | connectionId={ConnectionId} | remaining={Count}",
