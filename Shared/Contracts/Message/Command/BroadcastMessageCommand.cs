@@ -10,7 +10,7 @@ namespace Contracts.Message.Commend
 {
     public class BroadcastMessageCommand
     {
-        public string Type = "BroadcastNewMessage";
+        public string Type => "BroadcastNewMessage";
         public string MessageId { get; set; }
         public string SenderId { get; set; }
         public string SenderName { get; set; }

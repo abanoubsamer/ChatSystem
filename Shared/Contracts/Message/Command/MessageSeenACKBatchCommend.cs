@@ -8,7 +8,7 @@ namespace Contracts.Message.Command
 {
     public class MessageSeenACKBatchCommend
     {
-        public string Type = "SeenACK";
+        public string Type => "SeenACK";
         public string ReceiverId { get; set; }
         public string SanderId { get; set; }
         public string ChatId { get; set; }

@@ -25,7 +25,6 @@ using Infrastructure.Connection.Implementation;
 using Infrastructure.Metrics;
 using Infrastructure.Pipeline;
 using Infrastructure.Pipeline.Middlewares;
-using Infrastructure.Processor;
 using Infrastructure.RateLimiting;
 using Infrastructure.Repositories.GenaricRepo;
 using Infrastructure.Services.Auth;

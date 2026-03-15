@@ -12,6 +12,6 @@ namespace Application.Abstractions.Handler.Methods
         /// بيعالج الـ incoming message.
         /// الـ MessageContext بيحمل: UserId, Socket, Writer, ConnectionId, Metrics
         /// </summary>
-        Task Handle(MessageContext context, byte[]? data, CancellationToken cancellationToken = default);
+        Task Handle(MessageContext context, byte[] data, CancellationToken cancellationToken = default);
     }
 }

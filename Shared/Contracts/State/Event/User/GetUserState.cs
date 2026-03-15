@@ -8,7 +8,7 @@ namespace Contracts.State.Event.User
 {
     public class GetUserState
     {
-        public string Type = "GetUserState";
+        public string Type => "GetUserState";
         public string UserId { get; set; }
         
     }

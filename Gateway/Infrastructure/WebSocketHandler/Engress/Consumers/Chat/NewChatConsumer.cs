@@ -43,7 +43,6 @@ namespace Infrastructure.WebSocketHandler.Engress.Consumers.Chat
                         msg.ChatId,
                         new NewChatEvent
                         {
-                            Type = "NewChat",
                             ChatId = msg.ChatId,
                             CreatedAt = msg.CreatedAt,
                             CreatorId = msg.CreatorId,

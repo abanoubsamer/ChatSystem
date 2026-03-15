@@ -8,7 +8,7 @@ namespace Contracts.State.Event.Group
 {
     public class GetGroupState
     {
-        public string Type = "GetGroupState";
+        public string Type => "GetGroupState";
         public string GroupId { get; set; }
     }
 }

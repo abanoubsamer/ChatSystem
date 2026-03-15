@@ -8,7 +8,6 @@ namespace Contracts.Message.Events
 {
     public class MessageSeenACKBatchEvent
     {
-        public string Type = "SeenACK";
         public string ReceiverId { get; set; }
         public string ChatId { get; set; }
         public List<string>  MessageIds { get; set; }

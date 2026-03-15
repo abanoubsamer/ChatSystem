@@ -4,6 +4,7 @@ using MongoDB.Bson.Serialization.Attributes;
 
 namespace Domain.Models
 {
+    [BsonIgnoreExtraElements]
     public class Story
     {
         [BsonId]
@@ -12,7 +13,7 @@ namespace Domain.Models
 
         [BsonRepresentation(BsonType.ObjectId)]
         public string UserId { get; set; }
-
+        public string? FileName { get; set; }
         public StoryMediaType Type { get; set; }
 
         public string? MediaUrl { get; set; }
@@ -23,7 +24,7 @@ namespace Domain.Models
         public string? BackgroundColor { get; set; }
         public string? FontStyle { get; set; }
 
-        public int Duration { get; set; } // seconds
+        public double? Duration { get; set; } // nullable double
         public StoryPrivacy Privacy { get; set; }
         public List<string> HiddenFromUserIds { get; set; } = new List<string>();
         public List<string> AllowedUserIds { get; set; } = new List<string>();

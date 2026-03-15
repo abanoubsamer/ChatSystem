@@ -9,7 +9,7 @@ namespace Contracts.Message.Events
 {
     public class MessageStoredAckEvent
     {
-      public string Type = "MessageStoredAckEvent";
+      
        public string  ClientMessageId { get; set; }
         public string MessageId { get; set; }
         public AggregateDto aggregate { get; set; }

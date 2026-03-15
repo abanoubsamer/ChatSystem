@@ -9,7 +9,7 @@ namespace Contracts.Chat.Event
 {
     public class NewChatEvent
     {
-        public string Type = "NewChatEvent";
+        public string Type => "NewChatEvent";
         public string ChatId { get; set; }
         public string ChatName { get; set; }
 

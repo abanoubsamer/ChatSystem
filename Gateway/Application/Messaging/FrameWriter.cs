@@ -40,7 +40,6 @@ namespace Application.Messaging
                
                 var frameBytes = frame.ToByteArray();
 
-                // 3. إرسال
                 await _writeLock.WaitAsync(cancellationToken);
                 try
                 {
@@ -49,8 +48,7 @@ namespace Application.Messaging
                         WebSocketMessageType.Binary,
                         true,
                         cancellationToken);
-
-                    _logger.LogDebug("Sent frame: Type={Type}, Size={Size}",
+                        _logger.LogDebug("Sent frame: Type={Type}, Size={Size}",
                         type, frameBytes.Length);
                 }
                 finally
@@ -82,12 +80,20 @@ namespace Application.Messaging
         }
 
         public async Task WriteErrorAsync(
-            string messageId,
-            string code,
-            string message,
-            object? details = null,
-            CancellationToken cancellationToken = default)
+              string messageId,
+              string code,
+              string message,
+              object? details = null,
+              CancellationToken cancellationToken = default)
         {
+            string? detailsStr = details switch
+            {
+                null => null,
+                Exception ex => ex.Message,
+                string s => s,
+                _ => TrySerializeToJson(details)
+            };
+
             var response = new MessageResponse
             {
                 MessageId = messageId,
@@ -95,13 +101,28 @@ namespace Application.Messaging
                 {
                     Code = code,
                     Message = message,
-                    Details = details
+                    Details = detailsStr
                 }
             };
 
             await WriteMessageAsync(response, FrameType.Error, cancellationToken);
         }
-
+        private static string TrySerializeToJson(object value)
+        {
+            try
+            {
+                return System.Text.Json.JsonSerializer.Serialize(value,
+                    new System.Text.Json.JsonSerializerOptions
+                    {
+                        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+                        MaxDepth = 3
+                    });
+            }
+            catch
+            {
+                return value.ToString() ?? string.Empty;
+            }
+        }
         public async Task WritePingAsync(CancellationToken cancellationToken = default)
         {
             await WriteMessageAsync<object?>(null, FrameType.Ping, cancellationToken);

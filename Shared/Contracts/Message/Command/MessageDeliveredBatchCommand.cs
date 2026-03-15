@@ -9,7 +9,7 @@ namespace Contracts.Message.Command
 {
     public class MessageDeliveredCommand
     {
-        public string Type = "DeliveredACK";
+        public string Type => "DeliveredACK";
         public string ReceiverId { get; set; }
         public string SanderId { get; set; }
         public string ChatId { get; set; }

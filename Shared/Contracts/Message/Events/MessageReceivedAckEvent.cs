@@ -9,7 +9,7 @@ namespace Contracts.Message.Events
     
     public class MessageReceivedAckEvent
     {
-        public string Type { get; set; }
+       
          public string ReceiverId { get; set; }
          public string SanderId { get; set; }
          public string ChatId { get; set; }

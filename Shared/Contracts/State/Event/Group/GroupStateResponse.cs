@@ -8,7 +8,7 @@ namespace Contracts.State.Event.Group
 {
     public class GroupStateResponse
     {
-         public string Type = "GroupStateResponse";
+         public string Type => "GroupStateResponse";
          public string GroupId { get; set; }
          public string? SessionId { get; set; }
          public bool IsOnline { get; set; }

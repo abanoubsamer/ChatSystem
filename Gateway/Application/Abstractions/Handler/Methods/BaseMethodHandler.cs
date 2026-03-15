@@ -1,4 +1,5 @@
 using Application.Messaging;
+using Application.Serialization;
 using MessagePack;
 using System.Net.WebSockets;
 using System.Reflection;
@@ -9,7 +10,7 @@ namespace Application.Abstractions.Handler.Methods
     public abstract class BaseMethodHandler<T> : IMethodHandler
     {
         public abstract string MethodName { get; }
-        public async Task Handle(MessageContext context, byte[]? data, CancellationToken cancellationToken = default)
+        public async Task Handle(MessageContext context, byte[] data, CancellationToken cancellationToken = default)
         {
             if (data is not byte[] bytes)
             {
@@ -24,7 +25,7 @@ namespace Application.Abstractions.Handler.Methods
             T request;
             try
             {
-                request = MessagePackSerializer.Deserialize<T>(bytes);
+                request = MessageSerializer.Deserialize<T>(bytes);
             }
             catch (MessagePackSerializationException)
             {
@@ -39,11 +40,7 @@ namespace Application.Abstractions.Handler.Methods
             await HandleAsync(context, request, cancellationToken);
         }
 
-        /// <summary>
-        /// الـ implementation الفعلي في كل handler.
-        /// استخدم context.UserId بدل string userId
-        /// استخدم context.SendResponseAsync/SendErrorAsync بدل WebSocket مباشرةً
-        /// </summary>
+      
         protected abstract Task HandleAsync(MessageContext context, T data, CancellationToken cancellationToken = default);
     }
 }

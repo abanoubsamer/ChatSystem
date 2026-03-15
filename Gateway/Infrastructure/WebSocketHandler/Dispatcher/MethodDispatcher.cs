@@ -22,7 +22,6 @@ namespace Infrastructure.WebSocketHandler.Dispatcher
                ILogger<MethodDispatcher> logger)
         {
             _logger = logger;
-
             _handlers = handlers.ToDictionary(
                 h => h.MethodName,
                 StringComparer.OrdinalIgnoreCase 
@@ -65,7 +64,7 @@ namespace Infrastructure.WebSocketHandler.Dispatcher
                     "Handler '{Method}' failed | userId={UserId} | connectionId={ConnectionId}",
                     methodName, context.UserId, context.ConnectionId);
 
-                // ✅ نبلغ الـ client بدل ما الـ error يضيع في silence
+             
                 await context.SendErrorAsync(
                     Guid.NewGuid().ToString("N"),
                     "HANDLER_ERROR",
