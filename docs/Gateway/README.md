@@ -109,12 +109,22 @@ if (context.Request.Path.StartsWithSegments("/ws"))
 
 ---
 
-### 2. GatewayIngressHandler
-Handles incoming WebSocket messages (ingress).
+### 2. GatewayIngressHandler & Message Pipeline
+Handles incoming WebSocket messages (ingress) with high efficiency.
 
-**Key Methods:**
-- `HandleAsync()` - Main message processing loop
-- Routes messages to appropriate handlers based on method name
+**Key Features:**
+- **Pipelines Integration**: Uses `FrameReader` (built on `System.IO.Pipelines`) to read frames without unnecessary allocations.
+- **Custom Binary Framing**:
+  - `Header`: 5 bytes (4 bytes Length + 1 byte Type)
+  - `Payload`: Binary data (MessagePack serialized)
+- **Method Dispatcher**: Uses `IMethodDispatcher` for O(1) routing to handlers.
+
+**Pipeline Flow:**
+1. `GatewayIngressHandler` accepts connection.
+2. `FrameReader` starts reading from the `Pipe`.
+3. `ProcessFrameAsync` identifies frame type (Message, Ping, Pong, Close).
+4. `ProcessMessageFrameAsync` deserializes the `MessageEnvelope` using `MessageSerializer` (MessagePack).
+5. `MethodDispatcher` resolves the handler and executes it.
 
 **Supported Methods:**
 | Method | Handler | Description |
@@ -135,13 +145,13 @@ Handles incoming WebSocket messages (ingress).
 
 ---
 
-### 3. BroadcastManager
-Manages outgoing message distribution to connected clients.
+### 3. BroadcastManager & Egress Pipeline
+Manages high-throughput message distribution.
 
 **Key Features:**
-- Serializes messages using MessagePack
-- Broadcasts to multiple sockets concurrently
-- Handles different message types (text, binary)
+- **Zero-Copy Serialization**: Leverages `ReadOnlyMemory<byte>` for efficient data handling.
+- **Parallel Fan-out**: Uses `Parallel.ForEachAsync` with a `MaxDegreeOfParallelism` (default: 100) to ensure that slow clients don't block the entire broadcast queue.
+- **Resilience**: Individually catches socket exceptions to prevent a single failing connection from aborting a multi-user broadcast.
 
 ---
 

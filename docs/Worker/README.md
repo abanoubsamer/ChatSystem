@@ -70,32 +70,38 @@ The Worker service uses **Microsoft Orleans** for distributed state management. 
 - **Automatic persistence**: Periodic state saves to MongoDB
 - **Horizontal scaling**: Add more silos to handle more chats
 
-#### ChatGrain
-The main grain responsible for tracking message acknowledgments in a chat.
+#### AckGrain (formerly ChatGrain)
+The main grain responsible for tracking message acknowledgments in a chat. It has been refactored for **Ultra-Fast** performance using an in-memory `AckEngine` and `System.Threading.Channels`.
+
+**Key Enhancements:**
+- **Reentrant**: The grain is marked as `[Reentrant]` to allow concurrent processing of ACKs.
+- **Channel-Based Batching**: Uses `System.Threading.Channels` to decouple ACK reception from database persistence.
+- **AckEngine**: A high-performance engine that uses bitmasks and optimized data structures for O(1) tracking.
+- **Bulk Database Updates**: ACKs are batched and written to MongoDB using `BulkUpdateMessageReceiptsAsync` to minimize I/O overhead.
 
 ```csharp
-public class ChatGrain : Grain, IChatGrain
+[Reentrant]
+public sealed class AckGrain : Grain, IAckGrain
 {
-    private readonly IPersistentState<ChatGrainState> _state;
-    private readonly IPublishEndpoint _publisher;
-    private IDisposable? _saveTimer;
+    private readonly IPersistentState<ChatAckState> _persistentState;
+    private AckEngine? _engine;
+    private readonly Channel<AckReceived> _channel;
+    private int _memberCount;
 
-    // Called when grain activates
-    public override Task OnActivateAsync(CancellationToken ct)
+    public override async Task OnActivateAsync(CancellationToken ct)
     {
-        // Auto-save to DB every 30 seconds
-        _saveTimer = RegisterTimer(
-            _ => _state.WriteStateAsync(),
-            null,
-            TimeSpan.FromSeconds(30),
-            TimeSpan.FromSeconds(30));
-        
-        return base.OnActivateAsync(ct);
+        _engine = new AckEngine(_persistentState.State, _memberCount);
+
+        // Background batch processor
+        _ = Task.Run(() => ProcessBatchesAsync(_queueCts.Token));
+
+        // Periodically flush in-memory state to persistent store
+        RegisterTimer(async _ => await _engine.FlushAsync(_persistentState), ...);
     }
 }
 ```
 
-**ChatGrainState Structure:**
+**ChatAckState Structure:**
 ```csharp
 public class ChatGrainState
 {

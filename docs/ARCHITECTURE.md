@@ -10,14 +10,37 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
 - **Stateless Microservices**: Most services are stateless, allowing for easy horizontal scaling.
 - **Asynchronous Messaging**: Communication between services is primarily handled via **MassTransit** over **RabbitMQ**, ensuring loose coupling and resilience.
 - **Distributed State Management**: **Microsoft Orleans** is used to manage "Grains" (Virtual Actors), providing a high-performance way to handle entity states (like chat ACK tracking) in memory across a cluster.
-- **Real-Time Communication**: **WebSockets** are used for bi-directional communication between clients and the system, managed by a dedicated **Gateway** service.
+- **Real-Time Communication**: **WebSockets** with a high-performance custom framing protocol are used for bi-directional communication, managed by the **Gateway** service.
 - **Polyglot Persistence**: While primarily using **MongoDB**, the system is designed to allow different storage engines for different services if needed.
 
 ---
 
-## 2. Microservices Analysis
+## 2. Performance Engineering & Optimizations
 
-### 2.1 API Service (`Api`)
+The system has been engineered for extreme scale and low latency. Key optimizations include:
+
+### 2.1 High-Performance WebSocket Pipeline
+- **IO Pipelines**: The Gateway uses `System.IO.Pipelines` for zero-copy message ingestion, drastically reducing GC pressure and memory allocations.
+- **Custom Framing**: A lightweight binary framing protocol (`FrameReader`/`FrameWriter`) ensures efficient message delimitation and type identification (Message, Ping, Pong, Close).
+- **Array Pooling**: Heavy use of `ArrayPool<byte>.Shared` to minimize buffer allocations.
+
+### 2.2 Optimized Dispatching
+- **O(1) Handler Lookup**: Method handlers are registered in a `ReadOnlyDictionary` at startup, replacing O(N) linear searches with O(1) hash lookups.
+- **Zero-Allocation Serialization**: `MessagePackSerializerOptions` are cached statically to avoid redundant allocations during serialization/deserialization.
+
+### 2.3 Ultra-Fast State & ACK Tracking
+- **Bitmask Efficiency**: Group chat delivery status is tracked via bitmasks in Orleans Grains. A group of 1,000 members consumes only ~125 bytes of state for tracking.
+- **Channel-Based Batching**: `AckGrain` uses `System.Threading.Channels` to batch incoming ACKs, allowing for asynchronous bulk updates to the database.
+- **Aggressive Inlining**: Critical hot paths in the `AckEngine` and `AckStateDs` use `[MethodImpl(MethodImplOptions.AggressiveInlining)]`.
+
+### 2.4 Scalable Broadcasting
+- **Parallel Fan-out**: The `BroadcastManager` utilizes `Parallel.ForEachAsync` with a controlled `MaxDegreeOfParallelism` (default 100) to push messages to thousands of concurrent sockets without blocking the ingress pipeline.
+
+---
+
+## 3. Microservices Analysis
+
+### 3.1 API Service (`Api`)
 - **Purpose**: Acts as the RESTful entry point for client applications.
 - **Responsibilities**:
     - User Authentication & Authorization (JWT).
@@ -27,7 +50,7 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
 - **Tech Stack**: ASP.NET Core, MediatR (CQRS), MongoDB.
 - **Interactions**: Persists data directly to MongoDB; issues commands to the event bus for side effects.
 
-### 2.2 Gateway Service (`Gateway`)
+### 3.2 Gateway Service (`Gateway`)
 - **Purpose**: Manages long-lived WebSocket connections and WebRTC signaling.
 - **Responsibilities**:
     - WebSocket Lifecycle Management (Connect/Disconnect).
@@ -37,18 +60,18 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
 - **Internal Modules**: `WebSocketMiddleware`, `GatewayIngressHandler`, `BroadcastManager`, `ConnectionStoreManager`.
 - **Interactions**: Publishes commands to the Worker; consumes broadcast commands from the Event Bus.
 
-### 2.3 Worker Service (`Worker`)
+### 3.3 Worker Service (`Worker`)
 - **Purpose**: The "Brain" of the system, handling business logic, state, and persistence.
 - **Responsibilities**:
     - Message Persistence (Saving messages to MongoDB).
-    - **ACK Tracking**: Using **Orleans Grains** (`ChatGrain`) to track delivery and seen status using bitmasks for extreme efficiency.
+    - **ACK Tracking**: Using **Orleans Grains** (`AckGrain`) to track delivery and seen status using bitmasks for extreme efficiency.
     - Call State Management (Tracking active sessions).
     - Member Management logic.
     - **Story Lifecycle Management**: A background `StoryCleanupWorker` manages the 24h expiration and media cleanup for Stories.
 - **Tech Stack**: Microsoft Orleans, MassTransit, MongoDB.
 - **Interactions**: Consumes commands from the Gateway and API; publishes events (e.g., `MessageCreatedEvent`) for further processing.
 
-### 2.4 Broadcast Preparation Worker (`BroadcastPreparationWorker`)
+### 3.4 Broadcast Preparation Worker (`BroadcastPreparationWorker`)
 - **Purpose**: Pre-processes events before they are sent back to the Gateway for delivery.
 - **Responsibilities**:
     - **Fan-out Preparation**: Determining which users need to receive a specific message.
@@ -59,7 +82,7 @@ The system follows a **Microservices Architecture** combined with **Event-Driven
 
 ---
 
-## 3. Microservices Dependency Map
+## 4. Microservices Dependency Map
 
 ```mermaid
 flowchart TB
@@ -109,7 +132,7 @@ flowchart TB
 
 ---
 
-## 4. Technology Stack
+## 5. Technology Stack
 
 | Component | Technology | Role |
 |-----------|------------|------|
@@ -124,7 +147,7 @@ flowchart TB
 
 ---
 
-## 5. Database Design & Entities
+## 6. Database Design & Entities
 
 The system uses **MongoDB** as its primary store.
 
@@ -144,7 +167,7 @@ The system uses **MongoDB** as its primary store.
 
 ---
 
-## 6. Event System & Reliability
+## 7. Event System & Reliability
 
 The system uses an **Event-Driven Architecture** with several patterns to ensure reliability:
 
@@ -155,7 +178,7 @@ The system uses an **Event-Driven Architecture** with several patterns to ensure
 
 ---
 
-## 7. Security Review
+## 8. Security Review
 
 - **Authentication**: JWT tokens are required for all API calls and to establish WebSocket connections.
 - **Authorization**: Role-based and ownership-based checks (e.g., only members of a group can send messages to it).
@@ -164,7 +187,7 @@ The system uses an **Event-Driven Architecture** with several patterns to ensure
 
 ---
 
-## 8. Scalability Analysis
+## 9. Scalability Analysis
 
 - **Horizontal Scaling**:
     - **Gateway**: Multiple instances can run behind a Load Balancer. Since state is in Orleans/Redis/MongoDB, any Gateway can handle any user.
@@ -178,7 +201,7 @@ The system uses an **Event-Driven Architecture** with several patterns to ensure
 
 ---
 
-## 9. Production Readiness & Future Improvements
+## 10. Production Readiness & Future Improvements
 
 ### Strengths:
 - Robust event-driven core.
