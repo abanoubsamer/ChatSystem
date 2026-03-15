@@ -24,22 +24,22 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                          CLIENTS                                     │
+│                          CLIENTS                                    │
 │           📱 Mobile        💻 Web        🖥️ Desktop                │
 └──────────────────────┬──────────────────────────────────────────────┘
                        │  WebSocket (Binary / MessagePack)
                        ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      GATEWAY (This Service)                          │
-│                                                                      │
-│  ┌─────────────┐    ┌──────────────┐    ┌───────────────────────┐  │
-│  │  WebSocket  │    │   Message    │    │    Orleans Grains     │  │
+│                      GATEWAY (This Service)                         │
+│                                                                     │
+│  ┌─────────────┐    ┌──────────────┐    ┌───────────────────────┐   │
+│  │  WebSocket  │    │   Message    │    │    Orleans Grains     │   │
 │  │ Middleware  │───▶│   Pipeline   │    │  UserGrain/RoomGrain  │  │
-│  └─────────────┘    └──────┬───────┘    └───────────────────────┘  │
-│                            │                                         │
+│  └─────────────┘    └──────┬───────┘    └───────────────────────┘   │
+│                            │                                        │
 │                     ┌──────▼───────┐                                │
-│                     │   Handlers   │                                 │
-│                     │ (16 methods) │                                 │
+│                     │   Handlers   │                                │
+│                     │ (16 methods) │                                │
 │                     └──────┬───────┘                                │
 └────────────────────────────┼────────────────────────────────────────┘
                              │
@@ -59,7 +59,7 @@
 ```
 Client                    Middleware              GatewayIngressHandler
   │                           │                           │
-  │──── HTTP Upgrade ────────▶│                           │
+  │──── HTTP Upgrade ───────▶ │                           │
   │                           │                           │
   │                    ┌──────▼──────┐                    │
   │                    │ JWT Auth    │                    │
@@ -122,8 +122,8 @@ Client                    Middleware              GatewayIngressHandler
  ┌─────────────────────────────────────────────────────────┐
  │  0    1    2    3    │  4   │  5 ... N                  │
  │  ─────────────────── │ ─── │ ──────────────────────     │
- │  Payload Length      │Type │ Payload (MessagePack)       │
- │  (4 bytes Big-Endian)│(1b) │ (variable length)           │
+ │  Payload Length      │Type │ Payload (MessagePack)      │
+ │  (4 bytes Big-Endian)│(1b) │ (variable length)          │
  └─────────────────────────────────────────────────────────┘
         │                 │
         │                 └── Frame Types:
@@ -138,7 +138,7 @@ Client                    Middleware              GatewayIngressHandler
 
  Example — "NewMessage" frame:
  ┌──────┬──────┬──────┬──────┬──────┬─────────────────────┐
- │  00  │  00  │  00  │  4A  │  01  │  [MessagePack data]  │
+ │  00  │  00  │  00  │  4A  │  01  │  [MessagePack data] │
  └──────┴──────┴──────┴──────┴──────┴─────────────────────┘
    Length = 74 bytes            Type = Message
 ```
@@ -157,8 +157,8 @@ Socket.ReceiveAsync()
    │     → Extract Length + FrameType                    │
    │  2. Rent buffer from ArrayPool                      │
    │  3. Accumulate payload bytes                        │
-   │  4. When complete → payload.ToArray() ✅            │
-   │     (independent copy — no corruption between frames)│
+   │  4. When complete → payload.ToArray() ✅           │
+   │    (independent copy — no corruption between frames)│
    └─────────────────────────────────────────────────────┘
         │
         ▼
@@ -181,50 +181,50 @@ Socket.ReceiveAsync()
           └───────────────┬───────────────────────┘
                           │
           ┌───────────────▼───────────────────────┐
-          │      1. MetricsMiddleware              │
-          │   • Starts Activity (Distributed       │
-          │     Tracing / OpenTelemetry)           │
-          │   • Measures processing time           │
-          │   • Records success/error metrics      │
-          │   • Wraps ALL other middlewares        │
+          │      1. MetricsMiddleware             │
+          │   • Starts Activity (Distributed      │
+          │     Tracing / OpenTelemetry)          │
+          │   • Measures processing time          │
+          │   • Records success/error metrics     │
+          │   • Wraps ALL other middlewares       │
           └───────────────┬───────────────────────┘
                           │
           ┌───────────────▼───────────────────────┐
-          │      2. RateLimitMiddleware            │
-          │   • TokenBucket algorithm              │
-          │   • 100 req/sec per userId             │
-          │   • Exceeded → SendErrorAsync()        │
-          │     and STOP pipeline                  │
+          │      2. RateLimitMiddleware           │
+          │   • TokenBucket algorithm             │
+          │   • 100 req/sec per userId            │
+          │   • Exceeded → SendErrorAsync()       │
+          │     and STOP pipeline                 │
           │   • OK → continue ↓                   │
           └───────────────┬───────────────────────┘
                           │
           ┌───────────────▼───────────────────────┐
-          │      3. DecompressionMiddleware        │
-          │   • Checks Gzip magic bytes (1F 8B)    │
-          │   • Not compressed → pass through      │
-          │     (zero overhead)                    │
-          │   • Compressed → Gzip decompress       │
+          │      3. DecompressionMiddleware       │
+          │   • Checks Gzip magic bytes (1F 8B)   │
+          │   • Not compressed → pass through     │
+          │     (zero overhead)                   │
+          │   • Compressed → Gzip decompress      │
           │     → pass new payload ↓              │
           └───────────────┬───────────────────────┘
                           │
           ┌───────────────▼───────────────────────┐
-          │      4. DispatchMiddleware             │
-          │   • Deserialize → MessageEnvelope      │
-          │   • Validate (Method not empty)        │
-          │   • Invalid → SendErrorAsync() STOP    │
-          │   • Valid → MethodDispatcher           │
+          │      4. DispatchMiddleware            │
+          │   • Deserialize → MessageEnvelope     │
+          │   • Validate (Method not empty)       │
+          │   • Invalid → SendErrorAsync() STOP   │
+          │   • Valid → MethodDispatcher          │
           └───────────────┬───────────────────────┘
                           │
           ┌───────────────▼───────────────────────┐
           │         MethodDispatcher              │
-          │   Dictionary<string, IMethodHandler>   │
-          │   Lookup by method name (O(1))         │
+          │   Dictionary<string, IMethodHandler>  │
+          │   Lookup by method name (O(1))        │
           └───────────────┬───────────────────────┘
                           │
           ┌───────────────▼───────────────────────┐
-          │       Concrete Handler                 │
-          │  e.g. NewMessageMethodHandler          │
-          │       JoinCallMethodHandler            │
+          │       Concrete Handler                │
+          │  e.g. NewMessageMethodHandler         │
+          │       JoinCallMethodHandler           │
           └───────────────────────────────────────┘
 ```
 
@@ -278,31 +278,31 @@ services.AddSingleton<IMessageMiddleware, MessageLoggingMiddleware>();
 ║  قبل — userId + socket بيتمرروا منفصلين في كل حاجة            ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║                                                                  ║
-║  GatewayIngressHandler(userId, socket)                          ║
+║  GatewayIngressHandler(userId, socket)                           ║
 ║          ↓                                                       ║
-║  Dispatcher(userId, method, params, socket)                     ║
+║  Dispatcher(userId, method, params, socket)                      ║
 ║          ↓                                                       ║
-║  Handler.Handle(userId, data, socket)                           ║
+║  Handler.Handle(userId, data, socket)                            ║
 ║          ↓                                                       ║
-║  HandleAsync(userId, T, socket)                                 ║
+║  HandleAsync(userId, T, socket)                                  ║
 ║                                                                  ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║  بعد — MessageContext بيتمرر في كل الـ chain                   ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║                                                                  ║
-║  GatewayIngressHandler(userId, socket)                          ║
-║          ↓  ← CREATE MessageContext هنا بس                     ║
-║  Pipeline.ExecuteAsync(context, payload)                        ║
+║  GatewayIngressHandler(userId, socket)                           ║ 
+║          ↓  ← CREATE MessageContext هنا بس                        ║
+║  Pipeline.ExecuteAsync(context, payload)                         ║
 ║          ↓                                                       ║
-║  Handler.Handle(context, data)                                  ║
+║  Handler.Handle(context, data)                                   ║
 ║          ↓                                                       ║
-║  HandleAsync(context, T)                                        ║
+║  HandleAsync(context, T)                                         ║
 ║          ↓                                                       ║
-║  context.UserId                 ← بدل string userId             ║
-║  context.SendResponseAsync()    ← بدل socket مباشرةً           ║
-║  context.SendErrorAsync()       ← structured error              ║
-║  context.ConnectionId           ← للـ logging                  ║
-║  context.MessagesReceived       ← metrics                       ║
+║  context.UserId                 ← بدل string userId               ║
+║  context.SendResponseAsync()    ← بدل socket مباشرةً                 ║
+║  context.SendErrorAsync()       ← structured error               ║
+║  context.ConnectionId           ← للـ logging                      ║
+║  context.MessagesReceived       ← metrics                        ║
 ║                                                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
 ```
@@ -311,33 +311,33 @@ services.AddSingleton<IMessageMiddleware, MessageLoggingMiddleware>();
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                    MessageContext                         │
+│                    MessageContext                        │
 ├──────────────────────────────────────────────────────────┤
 │  Identity                                                │
-│  ├── ConnectionId : string (GUID)                       │
-│  └── UserId       : string                              │
+│  ├── ConnectionId : string (GUID)                        │
+│  └── UserId       : string                               │
 ├──────────────────────────────────────────────────────────┤
 │  Transport                                               │
-│  ├── Socket  : WebSocket                                │
-│  ├── Writer  : FrameWriter   ← للإرسال                 │
-│  └── Reader  : FrameReader   ← للاستقبال               │
+│  ├── Socket  : WebSocket                                 │
+│  ├── Writer  : FrameWriter   ← للإرسال                      │
+│  └── Reader  : FrameReader   ← للاستقبال                     │
 ├──────────────────────────────────────────────────────────┤
 │  State                                                   │
-│  ├── ConnectionState : Connected/Closing/Disconnected   │
-│  ├── ConnectedAt    : DateTime                          │
-│  └── LastActivityAt : DateTime                          │
+│  ├── ConnectionState : Connected/Closing/Disconnected    │
+│  ├── ConnectedAt    : DateTime                           │
+│  └── LastActivityAt : DateTime                           │
 ├──────────────────────────────────────────────────────────┤
-│  Metrics (Thread-Safe via Interlocked)                  │
-│  ├── MessagesReceived : long                            │
-│  └── MessagesSent     : long                            │
+│  Metrics (Thread-Safe via Interlocked)                   │
+│  ├── MessagesReceived : long                             │
+│  └── MessagesSent     : long                             │
 ├──────────────────────────────────────────────────────────┤
 │  Send API                                                │
-│  ├── SendAsync<T>()        ← object → serialize → send  │
+│  ├── SendAsync<T>()        ← object → serialize → send   │
 │  ├── SendRawAsync()        ← pre-serialized bytes        │
 │  ├── SendResponseAsync()   ← structured response         │
 │  ├── SendErrorAsync()      ← structured error            │
-│  ├── SendPingAsync()                                    │
-│  └── SendPongAsync()                                    │
+│  ├── SendPingAsync()                                     │
+│  └── SendPongAsync()                                     │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -385,8 +385,8 @@ IMethodHandler
 ### WebRTC Call Flow
 ```
 Caller                   Gateway                    Callee
-  │                         │                         │
-  │── offer ───────────────▶│                         │
+  │                          │                         │
+  │── offer ───────────────▶ │                         │
   │  (CreateGroupCallHandler)│                        │
   │                         │──── incoming_call ─────▶│
   │                         │    (RabbitMQ egress)    │
