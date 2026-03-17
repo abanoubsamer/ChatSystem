@@ -53,6 +53,9 @@ namespace Infrastructure.Services.Connection
         {
             var connectionId = _socketRegistry.Register(userId, context);
 
+            // Activate the connection grain on this local silo
+            await _grainFactory.GetGrain<IConnectionGrain>(connectionId).SendAsync(ReadOnlyMemory<byte>.Empty);
+
             await _grainFactory
                 .GetGrain<IUserGrain>(userId)
                 .ConnectAsync(connectionId);
@@ -65,6 +68,8 @@ namespace Infrastructure.Services.Connection
         public async Task DisconnectAsync(string userId, string connectionId, CancellationToken ct = default)
         {
             _socketRegistry.Unregister(connectionId);
+
+            await _grainFactory.GetGrain<IConnectionGrain>(connectionId).CloseAsync();
 
             await _grainFactory
                 .GetGrain<IUserGrain>(userId)

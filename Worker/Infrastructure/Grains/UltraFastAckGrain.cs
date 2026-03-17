@@ -83,8 +83,12 @@ public sealed class AckGrain : Grain, IAckGrain
 
         _initialized = true;
 
-        // Start batch processing loop with independent token
-        _ = Task.Run(() => ProcessBatchesAsync(_queueCts.Token));
+        RegisterTimer(
+            async _ => await ProcessBatchesAsync(CancellationToken.None),
+            state: null,
+            dueTime: TimeSpan.FromMilliseconds(BATCH_TIMEOUT_MS),
+            period: TimeSpan.FromMilliseconds(BATCH_TIMEOUT_MS)
+        );
 
         LogDebug($"Grain activated with {_memberCount} members", chatId);
     }
@@ -106,20 +110,24 @@ public sealed class AckGrain : Grain, IAckGrain
         }
     }
 
-   private async Task ProcessBatchesAsync(CancellationToken ct)
-{
-    try
+    private async Task ProcessBatchesAsync(CancellationToken ct)
     {
-        LogPerf("Batch processing loop started");
-
-        await foreach (var batch in _channel.Reader.ReadBatchesAsync(BATCH_SIZE, TimeSpan.FromMilliseconds(BATCH_TIMEOUT_MS), ct))
+        try
         {
+            var batch = new List<AckReceived>();
+            while (batch.Count < BATCH_SIZE && _channel.Reader.TryRead(out var ack))
+            {
+                batch.Add(ack);
+            }
+
+            if (batch.Count == 0) return;
+
             var sw = Stopwatch.StartNew();
-            LogPerf($"Batch received: Count={batch.Count}");
+            LogPerf($"Processing batch: Count={batch.Count}");
 
             // 🚀 Step 1: Dedup + Merge في Dictionary واحد
             var latest = new Dictionary<string, (string MsgId, AckType Type, DateTime Ts)>(batch.Count / 2);
-            
+
             foreach (var ack in batch)
             {
                 ProcessDirect(ack);
@@ -127,7 +135,7 @@ public sealed class AckGrain : Grain, IAckGrain
                 if (latest.TryGetValue(ack.UserId, out var curr))
                 {
                     var cmp = string.CompareOrdinal(ack.MessageId, curr.MsgId);
-                    
+
                     if (cmp > 0)
                         latest[ack.UserId] = (ack.MessageId, ack.Type, ack.Timestamp);
                     else if (cmp == 0 && ack.Type == AckType.Seen && curr.Type == AckType.Delivery)
@@ -141,7 +149,7 @@ public sealed class AckGrain : Grain, IAckGrain
 
             // 🚀 Step 2: Build DTOs
             var receipts = new List<UpdateMessageReceiptsDto>(latest.Count);
-            
+
             foreach (var (userId, (msgId, type, ts)) in latest)
             {
                 receipts.Add(new UpdateMessageReceiptsDto
@@ -149,29 +157,23 @@ public sealed class AckGrain : Grain, IAckGrain
                     UserId = userId,
                     MessageId = msgId,
                     ChatId = this.GetPrimaryKeyString(),
-                    Status =  type,
+                    Status = type,
                     DeliveredAt = type == AckType.Delivery ? ts : null,
                     ReadAt = type == AckType.Seen ? ts : null
                 });
             }
 
-             if (receipts.Count > 0)
+            if (receipts.Count > 0)
                 await _Msgrepository.BulkUpdateMessageReceiptsAsync(receipts);
 
-                sw.Stop();
-            
-                LogPerf($"Batch processed: Count={batch.Count}, Unique={receipts.Count}, TotalMs={sw.ElapsedMilliseconds}");
+            sw.Stop();
+            LogPerf($"Batch processed: Count={batch.Count}, Unique={receipts.Count}, TotalMs={sw.ElapsedMilliseconds}");
+        }
+        catch (Exception ex)
+        {
+            LogError($"Batch processing failed: {ex}");
         }
     }
-    catch (OperationCanceledException)
-    {
-        LogWarning("Batch processing loop cancelled");
-    }
-    catch (Exception ex)
-    {
-        LogError($"Batch processing loop crashed: {ex}");
-    }
-}
    
     private AckResult ProcessDirect(AckReceived ack)
     {

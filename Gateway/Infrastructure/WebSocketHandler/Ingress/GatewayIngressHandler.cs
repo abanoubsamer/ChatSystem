@@ -17,15 +17,18 @@ namespace Infrastructure.WebSocketHandler.Ingress
         private readonly IConnectionServices _connectionServices;
         private readonly IMessagePipeline _pipeline;
         private readonly ILogger<GatewayIngressHandler> _logger;
+        private readonly IGrainFactory _grainFactory;
 
         public GatewayIngressHandler(
             IConnectionServices connectionServices,
             IMessagePipeline pipeline,
-            ILogger<GatewayIngressHandler> logger)
+            ILogger<GatewayIngressHandler> logger,
+            IGrainFactory grainFactory)
         {
             _connectionServices = connectionServices;
             _pipeline = pipeline;
             _logger = logger;
+            _grainFactory = grainFactory;
         }
 
         public async Task HandleAsync(
@@ -45,15 +48,17 @@ namespace Infrastructure.WebSocketHandler.Ingress
 
             try
             {
-                var writer = new FrameWriter(socket, _logger);
+                var connectionId = Guid.NewGuid().ToString("N");
+                var writer = new FrameWriter(socket, _logger, _grainFactory, connectionId);
 
                 context = new MessageContext(socket, writer, reader)
                 {
                     UserId = userId,
-                    ConnectionCancellationToken = cancellationToken
+                    ConnectionCancellationToken = cancellationToken,
+                    ConnectionId = connectionId
                 };
 
-                var connectionId = await _connectionServices.ConnectAsync(userId, context, cancellationToken);
+                await _connectionServices.ConnectAsync(userId, context, cancellationToken);
 
                 reader.Start();
 

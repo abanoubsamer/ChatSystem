@@ -8,18 +8,23 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Threading.Tasks;
 using Application.Serialization;
+using Application.Abstractions.Grains;
+
 namespace Application.Messaging
 {
     public class FrameWriter
     {
         private readonly WebSocket _socket;
         private readonly ILogger _logger;
-        private readonly SemaphoreSlim _writeLock = new(1, 1);
+        private readonly IGrainFactory? _grainFactory;
+        private readonly string? _connectionId;
 
-        public FrameWriter(WebSocket socket, ILogger logger)
+        public FrameWriter(WebSocket socket, ILogger logger, IGrainFactory? grainFactory = null, string? connectionId = null)
         {
             _socket = socket;
             _logger = logger;
+            _grainFactory = grainFactory;
+            _connectionId = connectionId;
         }
 
         public async Task WriteMessageAsync<T>(
@@ -40,21 +45,23 @@ namespace Application.Messaging
                
                 var frameBytes = frame.ToByteArray();
 
-                await _writeLock.WaitAsync(cancellationToken);
-                try
+                if (_grainFactory != null && _connectionId != null)
                 {
+                    await _grainFactory.GetGrain<IConnectionGrain>(_connectionId).SendAsync(frameBytes);
+                }
+                else
+                {
+                    // Fallback to direct send if grain factory is not available (e.g. during initial connection)
+                    // Note: This still lacks the lock, but in a pure Orleans system, we'd always use the grain.
                     await _socket.SendAsync(
                         frameBytes,
                         WebSocketMessageType.Binary,
                         true,
                         cancellationToken);
-                        _logger.LogDebug("Sent frame: Type={Type}, Size={Size}",
-                        type, frameBytes.Length);
                 }
-                finally
-                {
-                    _writeLock.Release();
-                }
+
+                _logger.LogDebug("Sent frame: Type={Type}, Size={Size}",
+                    type, frameBytes.Length);
             }
             catch (Exception ex)
             {
@@ -147,22 +154,21 @@ namespace Application.Messaging
                 var frame = new MessageFrame(type, payload);
                 var frameBytes = frame.ToByteArray();
 
-                await _writeLock.WaitAsync(cancellationToken);
-                try
+                if (_grainFactory != null && _connectionId != null)
+                {
+                    await _grainFactory.GetGrain<IConnectionGrain>(_connectionId).SendAsync(frameBytes);
+                }
+                else
                 {
                     await _socket.SendAsync(
                         frameBytes,
                         WebSocketMessageType.Binary,
                         true,
                         cancellationToken);
+                }
 
-                    _logger.LogDebug("Sent raw frame: Type={Type}, Size={Size}",
-                        type, frameBytes.Length);
-                }
-                finally
-                {
-                    _writeLock.Release();
-                }
+                _logger.LogDebug("Sent raw frame: Type={Type}, Size={Size}",
+                    type, frameBytes.Length);
             }
             catch (Exception ex)
             {

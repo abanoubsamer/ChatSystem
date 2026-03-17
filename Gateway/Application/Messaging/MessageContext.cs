@@ -12,7 +12,7 @@ namespace Application.Messaging
     public class MessageContext
     {
         // ─── Identity ─────────────────────────────────────────────────────────────
-        public string ConnectionId { get; } = Guid.NewGuid().ToString("N");
+        public string ConnectionId { get; set; } = Guid.NewGuid().ToString("N");
         public string UserId { get; set; } = string.Empty;
 
 
