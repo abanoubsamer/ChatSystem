@@ -1,13 +1,13 @@
 ﻿using Application.Abstractions.Broadcast;
 using Application.Abstractions.CallSessionStore;
+using Application.Abstractions.CallSessionStore.Grains;
 using Application.Abstractions.Connection;
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
-using Application.Abstractions.Session;
+using Application.Dtos.Call;
 using Application.Dtos.Message;
 using Application.Messaging;
 using Contracts.Call.Event;
-using Contracts.Call.Session;
 using Contracts.Call.Signals;
 using System.Net.WebSockets;
 
@@ -20,39 +20,41 @@ namespace Application.Handlers.Call
         private readonly IOutgoingMessageService _outgoingMessage;
         private readonly IConnectionServices _connectionServices;
         private readonly IMessagePublisher _publisher;
-        private readonly ICallSessionStore _sessionStore;
-        private readonly IRingTimeoutService _ringTimeout;
+        private readonly IGrainFactory _grainFactory;
 
         public LeaveCallHandler(
             IOutgoingMessageService outgoingMessage,
-            ICallSessionStore sessionStore,
             IConnectionServices connectionServices,
             IMessagePublisher publisher,
-            IRingTimeoutService ringTimeout)
+            IGrainFactory grainFactory)
         {
             _outgoingMessage = outgoingMessage;
-            _sessionStore = sessionStore;
             _connectionServices = connectionServices;
             _publisher = publisher;
-            _ringTimeout = ringTimeout;
+            _grainFactory = grainFactory;
         }
 
-        protected override async Task HandleAsync(MessageContext context, LeaveCallSignal request, CancellationToken ct = default)
+        protected override async Task HandleAsync(
+            MessageContext context, LeaveCallSignal request, CancellationToken ct = default)
         {
-            var session = await _sessionStore.GetAsync(request.SessionId);
+            var sessionGrain = _grainFactory.GetGrain<ICallSessionGrain>(request.SessionId);
+            var session = await sessionGrain.GetAsync();
             if (session == null) return;
 
             await _connectionServices.LeaveGroupAsync(context.UserId, request.SessionId, ct);
+            await sessionGrain.RemoveParticipantAsync(context.UserId);
 
             var remaining = await _connectionServices.GetGroupCountAsync(request.SessionId, ct);
 
             if (session.Type == SessionType.Direct || remaining == 0)
             {
-                await EndSessionAsync(session, remaining == 0 ? "last_left" : "peer_left", ct);
+                // Last person left — end the whole session
+                await EndSessionAsync(sessionGrain, session,
+                    remaining == 0 ? "last_left" : "peer_left", ct);
             }
             else
             {
-                await _publisher.PublishAsync(new ParticipantLeftEvent
+                _ = _publisher.PublishAsync(new ParticipantLeftEvent
                 {
                     SessionId = request.SessionId,
                     UserId = context.UserId,
@@ -70,16 +72,15 @@ namespace Application.Handlers.Call
             }
         }
 
-        private async Task EndSessionAsync(SessionCallInfo session, string reason, CancellationToken ct)
+        private async Task EndSessionAsync(
+            ICallSessionGrain sessionGrain, SessionCallInfo session,
+            string reason, CancellationToken ct)
         {
-            _ringTimeout.CancelRingTimer(session.SessionId);
+            // EndAsync is idempotent: disposes ring timer, clears persisted state,
+            // clears chat active-session index, deactivates grain
+            await sessionGrain.EndAsync(reason);
 
-            await _sessionStore.RemoveAsync(session.SessionId);
-
-            if (!string.IsNullOrEmpty(session.ChatId))
-                await _sessionStore.RemoveActiveChatSessionAsync(session.ChatId);
-
-            await _publisher.PublishAsync(new CallEndedEvent
+            _ = _publisher.PublishAsync(new CallEndedEvent
             {
                 SessionId = session.SessionId,
                 Timestamp = DateTime.UtcNow,
@@ -87,7 +88,7 @@ namespace Application.Handlers.Call
             });
 
             await _outgoingMessage.SendToRoomAsync(
-                excludeUserId: null,
+                excludeUserId: null!,
                 roomId: session.SessionId,
                 message: new OutgoingMessage(
                     session.SessionId,

@@ -2,7 +2,6 @@
 using Application.Abstractions.Connection.Abstraction;
 using Application.Abstractions.Connection.Grains;
 using Application.Abstractions.Metrics;
-using Application.Abstractions.Session;
 using Application.Messaging;
 using Microsoft.Extensions.Logging;
 using System;

@@ -56,7 +56,8 @@ namespace Infrastructure.WebSocketHandler.Ingress
                 var connectionId = await _connectionServices.ConnectAsync(userId, context, cancellationToken);
 
                 reader.Start();
-
+                writer.Start(cancellationToken);   // ← required for Channel-based FrameWriter
+               
                 await writer.WriteResponseAsync(
                     Guid.NewGuid().ToString("N"),
                     "connected",

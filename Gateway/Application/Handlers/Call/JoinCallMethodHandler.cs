@@ -1,9 +1,9 @@
 using Application.Abstractions.Broadcast;
 using Application.Abstractions.CallSessionStore;
+using Application.Abstractions.CallSessionStore.Grains;
 using Application.Abstractions.Connection;
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
-using Application.Abstractions.Session;
 using Application.Dtos.Message;
 using Application.Messaging;
 using Contracts.Call.Event;
@@ -19,49 +19,48 @@ namespace Application.Handlers.Call
 
         private readonly IOutgoingMessageService _outgoingMessage;
         private readonly IConnectionServices _connectionServices;
-        private readonly ICallSessionStore _sessionStore;
         private readonly IMessagePublisher _publisher;
-        private readonly IRingTimeoutService _ringTimeout;
+        private readonly IGrainFactory _grainFactory;
 
         public JoinCallMethodHandler(
             IOutgoingMessageService outgoingMessage,
-            ICallSessionStore sessionStore,
             IConnectionServices connectionServices,
             IMessagePublisher publisher,
-            IRingTimeoutService ringTimeout)
+            IGrainFactory grainFactory)
         {
             _outgoingMessage = outgoingMessage;
-            _sessionStore = sessionStore;
             _connectionServices = connectionServices;
             _publisher = publisher;
-            _ringTimeout = ringTimeout;
+            _grainFactory = grainFactory;
         }
 
-        protected override async Task HandleAsync(MessageContext context, JoinGroupSignal request, CancellationToken ct = default)
+        protected override async Task HandleAsync(
+            MessageContext context, JoinGroupSignal request, CancellationToken ct = default)
         {
-            var session = await _sessionStore.GetAsync(request.SessionId);
+            var sessionGrain = _grainFactory.GetGrain<ICallSessionGrain>(request.SessionId);
+            var session = await sessionGrain.GetAsync();
 
             if (session == null)
             {
                 await _outgoingMessage.SendToUserAsync(context.UserId, new OutgoingMessage(
                     context.UserId,
-                    new { SessionId = request.SessionId, Reason = "session_not_found", Message = "This call no longer exists." },
+                    new
+                    {
+                        SessionId = request.SessionId,
+                        Reason = "session_not_found",
+                        Message = "This call no longer exists."
+                    },
                     "join_failed"), ct);
                 return;
             }
 
+            // AddParticipantAsync cancels the ring timer when this is the first joiner.
+            // Returns false if user is already a participant — safe to ignore.
+            var added = await sessionGrain.AddParticipantAsync(context.UserId);
             await _connectionServices.JoinGroupAsync(context.UserId, request.SessionId, ct);
 
-            if (!session.Participants.Contains(context.UserId))
-            {
-                session.Participants.Add(context.UserId);
-                await _sessionStore.SetAsync(session.SessionId, session);
-            }
-
-            _ringTimeout.CancelRingTimer(request.SessionId);
-
-            // أول حد يجاوب → أبلّغ الـ creator
-            if (session.Participants.Count == 2)
+            // Notify creator on the first answer
+            if (added && session.Participants.Count == 1)
             {
                 await _outgoingMessage.SendToUserAsync(session.CreatorId, new OutgoingMessage(
                     session.CreatorId,
@@ -69,7 +68,7 @@ namespace Application.Handlers.Call
                     "call_answered"), ct);
             }
 
-            await _publisher.PublishAsync(new ParticipantJoinedEvent
+            _ = _publisher.PublishAsync(new ParticipantJoinedEvent
             {
                 SessionId = request.SessionId,
                 UserId = context.UserId,
@@ -83,7 +82,12 @@ namespace Application.Handlers.Call
                 roomId: request.SessionId,
                 message: new OutgoingMessage(
                     request.SessionId,
-                    new { SessionId = request.SessionId, UserId = context.UserId, ExistingMembers = existingMembers },
+                    new
+                    {
+                        SessionId = request.SessionId,
+                        UserId = context.UserId,
+                        ExistingMembers = existingMembers
+                    },
                     "user_joined_call"),
                 ct: ct);
         }

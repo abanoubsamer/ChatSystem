@@ -1,15 +1,16 @@
 using Application.Abstractions.Metrics;
 using Application.Abstractions.Pipeline;
 using Application.Abstractions.RateLimiting;
+using Application.Abstractions.RateLimiting.Grains;
 using Application.Messaging;
 using Microsoft.Extensions.Logging;
 
 namespace Infrastructure.Pipeline.Middlewares
 {
-  
+
     public sealed class RateLimitMiddleware : IMessageMiddleware
     {
-        private readonly IRateLimiter _rateLimiter;
+        private readonly IGrainFactory _grainFactory;
         private readonly IMetricsCollector _metrics;
         private readonly ILogger<RateLimitMiddleware> _logger;
 
@@ -17,11 +18,11 @@ namespace Infrastructure.Pipeline.Middlewares
         private static readonly TimeSpan Window = TimeSpan.FromSeconds(1);
 
         public RateLimitMiddleware(
-            IRateLimiter rateLimiter,
+            IGrainFactory grainFactory,
             IMetricsCollector metrics,
             ILogger<RateLimitMiddleware> logger)
         {
-            _rateLimiter = rateLimiter;
+            _grainFactory = grainFactory;
             _metrics = metrics;
             _logger = logger;
         }
@@ -32,8 +33,9 @@ namespace Infrastructure.Pipeline.Middlewares
             MessageMiddlewareDelegate next,
             CancellationToken ct)
         {
-            var result = await _rateLimiter.AcquireAsync(
-                context.UserId, MaxRequestsPerSecond, Window, ct);
+            var result = await _grainFactory
+                .GetGrain<IRateLimitGrain>(context.UserId)
+                .AcquireAsync(MaxRequestsPerSecond, Window);
 
             if (!result.IsAllowed)
             {
@@ -48,12 +50,12 @@ namespace Infrastructure.Pipeline.Middlewares
                     Guid.NewGuid().ToString("N"),
                     "RATE_LIMITED",
                     $"Too many requests. Retry after {result.RetryAfter.TotalSeconds:F1}s",
-                    ct);
+                    ct: ct);
 
-                return; // ← يوقف الـ pipeline
+                return;
             }
 
-            await next(context, payload, ct); // ← يكمل
+            await next(context, payload, ct);
         }
     }
 }

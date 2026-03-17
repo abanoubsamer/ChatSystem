@@ -1,13 +1,13 @@
 ﻿using Application.Abstractions.Broadcast;
 using Application.Abstractions.CallSessionStore;
+using Application.Abstractions.CallSessionStore.Grains;
 using Application.Abstractions.Connection;
 using Application.Abstractions.Handler.Methods;
 using Application.Abstractions.Publisher;
-using Application.Abstractions.Session;
+using Application.Dtos.Call;
 using Application.Dtos.Message;
 using Application.Messaging;
 using Contracts.Call.Event;
-using Contracts.Call.Session;
 using Contracts.Call.Signals;
 using Contracts.Enums;
 using Contracts.Message.Commend;
@@ -20,47 +20,50 @@ namespace Application.Handlers.Call
     {
         public override string MethodName => "create_group_call";
 
-        private static readonly TimeSpan RingTimeout = TimeSpan.FromSeconds(30);
-
         private readonly IOutgoingMessageService _outgoingMessage;
-        private readonly ICallSessionStore _sessionStore;
         private readonly IConnectionServices _connectionServices;
         private readonly IMessagePublisher _publisher;
-        private readonly IRingTimeoutService _ringTimeout;
+        private readonly IGrainFactory _grainFactory;
 
         public CreateGroupCallHandler(
             IOutgoingMessageService outgoingMessage,
-            ICallSessionStore sessionStore,
             IConnectionServices connectionServices,
             IMessagePublisher publisher,
-            IRingTimeoutService ringTimeout)
+            IGrainFactory grainFactory)
         {
             _outgoingMessage = outgoingMessage;
-            _sessionStore = sessionStore;
             _connectionServices = connectionServices;
             _publisher = publisher;
-            _ringTimeout = ringTimeout;
+            _grainFactory = grainFactory;
         }
 
-        protected override async Task HandleAsync(MessageContext context, CreateGroupSignal request, CancellationToken ct = default)
+        protected override async Task HandleAsync(
+            MessageContext context, CreateGroupSignal request, CancellationToken ct = default)
         {
-            // Guard: في call شغال على نفس الـ chat
-            var existingSessionId = await _sessionStore.GetActiveSessionByChatIdAsync(request.ChatId);
+            // Self-healing: GetSessionAsync validates liveness and clears stale mappings
+            var chatGrain = _grainFactory.GetGrain<IActiveChatSessionGrain>(request.ChatId);
+            var existingSessionId = await chatGrain.GetSessionAsync();
 
             if (existingSessionId != null)
             {
                 await _outgoingMessage.SendToUserAsync(context.UserId, new OutgoingMessage(
                     request.ChatId,
-                    new { SessionId = existingSessionId, ChatId = request.ChatId, Message = "There is already an active call. You can join it instead." },
+                    new
+                    {
+                        SessionId = existingSessionId,
+                        ChatId = request.ChatId,
+                        Message = "There is already an active call. You can join it instead."
+                    },
                     "call_already_active"), ct);
                 return;
             }
 
             var sessionId = ObjectId.GenerateNewId().ToString();
+            var sessionGrain = _grainFactory.GetGrain<ICallSessionGrain>(sessionId);
 
-            await _connectionServices.JoinGroupAsync(context.UserId, sessionId, ct);
-
-            await _sessionStore.SetAsync(sessionId, new SessionCallInfo
+            // Atomic check-and-create: single-threaded grain means concurrent requests
+            // are serialised — no two callers can both pass this guard simultaneously
+            var created = await sessionGrain.CreateAsync(new SessionCallInfo
             {
                 SessionId = sessionId,
                 Type = SessionType.Group,
@@ -70,9 +73,23 @@ namespace Application.Handlers.Call
                 ChatId = request.ChatId
             });
 
-            await _sessionStore.SetActiveChatSessionAsync(request.ChatId, sessionId);
+            if (!created)
+            {
+                // Concurrent create raced us — extremely rare but possible
+                await _outgoingMessage.SendToUserAsync(context.UserId, new OutgoingMessage(
+                    request.ChatId,
+                    new { ChatId = request.ChatId, Message = "Failed to create session, please retry." },
+                    "call_error"), ct);
+                return;
+            }
 
-            await _publisher.PublishAsync(new SessionCreatedEvent
+            // Register the chat active-session mapping
+            await chatGrain.SetSessionAsync(sessionId);
+
+            // Join the session room grain for future fan-out
+            await _connectionServices.JoinGroupAsync(context.UserId, sessionId, ct);
+
+            _ = _publisher.PublishAsync(new SessionCreatedEvent
             {
                 SessionId = sessionId,
                 CreatorId = context.UserId,
@@ -81,7 +98,7 @@ namespace Application.Handlers.Call
                 Timestamp = DateTime.UtcNow,
             });
 
-            await _publisher.PublishAsync(new InsertMessageCommand
+            _ = _publisher.PublishAsync(new InsertMessageCommand
             {
                 ChatId = request.ChatId,
                 MessageType = MessageType.CallVoice,
@@ -95,42 +112,17 @@ namespace Application.Handlers.Call
                 roomId: request.ChatId,
                 message: new OutgoingMessage(
                     request.ChatId,
-                    new { SessionId = sessionId, CallerId = context.UserId, IsGroupCall = true, ChatId = request.ChatId },
+                    new
+                    {
+                        SessionId = sessionId,
+                        CallerId = context.UserId,
+                        IsGroupCall = true,
+                        ChatId = request.ChatId
+                    },
                     "incoming_call"),
                 ct: ct);
 
-            _ringTimeout.StartRingTimer(sessionId, RingTimeout, async () =>
-                await HandleRingTimeoutAsync(sessionId, request.ChatId, context.UserId));
-        }
-
-        private async Task HandleRingTimeoutAsync(string sessionId, string chatId, string callerId)
-        {
-            var session = await _sessionStore.GetAsync(sessionId);
-            if (session == null || session.Participants.Count > 1) return;
-
-            await _sessionStore.RemoveAsync(sessionId);
-            await _sessionStore.RemoveActiveChatSessionAsync(chatId);
-            await _connectionServices.LeaveGroupAsync(callerId, sessionId);
-
-            await _publisher.PublishAsync(new CallEndedEvent
-            {
-                SessionId = sessionId,
-                Timestamp = DateTime.UtcNow,
-                Reason = "no_answer"
-            });
-
-            await _outgoingMessage.SendToUserAsync(callerId, new OutgoingMessage(
-                callerId,
-                new { SessionId = sessionId, Reason = "no_answer", Message = "No one answered the call." },
-                "call_ended"));
-
-            await _outgoingMessage.SendToRoomAsync(
-                excludeUserId: callerId,
-                roomId: chatId,
-                message: new OutgoingMessage(
-                    chatId,
-                    new { SessionId = sessionId, CallerId = callerId, ChatId = chatId },
-                    "missed_call"));
+            // Ring timer is now owned by CallSessionGrain.CreateAsync — no StartRingTimer call needed
         }
     }
 }

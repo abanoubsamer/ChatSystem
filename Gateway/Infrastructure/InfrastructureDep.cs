@@ -14,7 +14,6 @@ using Application.Abstractions.Processor;
 using Application.Abstractions.Publisher;
 using Application.Abstractions.Queue;
 using Application.Abstractions.RateLimiting;
-using Application.Abstractions.Session;
 using Application.Handlers.Call;
 using Application.Handlers.Message;
 using Application.Handlers.Snapshots;
@@ -25,7 +24,6 @@ using Infrastructure.Connection.Implementation;
 using Infrastructure.Metrics;
 using Infrastructure.Pipeline;
 using Infrastructure.Pipeline.Middlewares;
-using Infrastructure.RateLimiting;
 using Infrastructure.Repositories.GenaricRepo;
 using Infrastructure.Services.Auth;
 using Infrastructure.Services.Background;
@@ -33,7 +31,7 @@ using Infrastructure.Services.Broadcast;
 using Infrastructure.Services.Broadcast.Implementation;
 using Infrastructure.Services.Connection;
 using Infrastructure.Services.Publisher;
-using Infrastructure.Services.Session;
+
 using Infrastructure.WebSocketHandler.Dispatcher;
 using Infrastructure.WebSocketHandler.Engress.Consumers.Chat;
 using Infrastructure.WebSocketHandler.Engress.Consumers.Message;
@@ -187,14 +185,13 @@ namespace Infrastructure
 
             // Repositories → Singleton ✅
 
-            services.AddSingleton<ICallSessionStore, InMemorySessionStore>();
+         
 
             // Connection and Broadcast Managers → Singleton ✅
             services.AddSingleton<IFanOutResolverManager, FanOutResolverManager>();
             services.AddSingleton<IWebSocketRegistry, LocalWebSocketRegistry>();
-            services.AddSingleton<IBroadcastManager, BroadcastManager>();
+  
             services.AddSingleton<IConnectionServices, ConnectionServices>();
-            services.AddSingleton<IRingTimeoutService, RingTimeoutService>();
             services.AddSingleton<IOutgoingMessageService, OutgoingMessageService>();
 
             // Auth → Singleton ✅ (if thread-safe)
@@ -202,7 +199,7 @@ namespace Infrastructure
 
             // Metrics & Rate Limiting → Singleton ✅
             services.AddSingleton<IMetricsCollector, OpenTelemetryMetricsCollector>();
-            services.AddSingleton<IRateLimiter, TokenBucketRateLimiter>();
+
             services.AddSingleton<IMessageCompressor, GzipMessageCompressor>();
 
             // ── Message Pipeline ───────────────────────────────────────────────────

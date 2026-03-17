@@ -22,6 +22,11 @@ builder.UseOrleans(silo =>
         .UseLocalhostClustering()
         .UseMongoDBClient(
             builder.Configuration["MongoSettings:ConnectionString"]!)
+        .UseMongoDBReminders(options =>
+        {
+            options.DatabaseName = "ChatDb";
+            options.CollectionPrefix = "Orleans_Reminders_";
+        })
         .AddMongoDBGrainStorage("ChatStore", options =>
         {
             options.DatabaseName = "ChatDb";

@@ -1,14 +1,11 @@
 using Application.Abstractions.Broadcast;
-using Application.Abstractions.CallSessionStore;
-using Application.Abstractions.Connection.Abstraction;
+using Application.Abstractions.CallSessionStore.Grains;
 using Application.Abstractions.Connection.Grains;
 using Application.Abstractions.Handler.Methods;
 using Application.Dtos;
 using Application.Dtos.Message;
 using Application.Messaging;
 using Contracts.State.Event.Group;
-using Domain;
-using System.Net.WebSockets;
 
 namespace Application.Handlers.State
 {
@@ -18,23 +15,25 @@ namespace Application.Handlers.State
 
         private readonly IOutgoingMessageService _outgoingMessage;
         private readonly IGrainFactory _grainFactory;
-        private readonly ICallSessionStore _callSessionStore;
 
         public GroupStateMethodHandler(
             IOutgoingMessageService outgoingMessage,
-            IGrainFactory grainFactory,
-            ICallSessionStore callSessionStore)
+            IGrainFactory grainFactory)
         {
             _outgoingMessage = outgoingMessage;
             _grainFactory = grainFactory;
-            _callSessionStore = callSessionStore;
         }
 
-        protected override async Task HandleAsync(MessageContext context, GetGroupState request, CancellationToken ct = default)
+        protected override async Task HandleAsync(
+            MessageContext context, GetGroupState request, CancellationToken ct = default)
         {
-            // الاتنين concurrent
-            var presenceTask = _grainFactory.GetGrain<IRoomGrain>(request.GroupId).GetPresenceAsync();
-            var sessionIdTask = _callSessionStore.GetActiveSessionByChatIdAsync(request.GroupId);
+            var presenceTask = _grainFactory
+                .GetGrain<IRoomGrain>(request.GroupId)
+                .GetPresenceAsync();
+
+            var sessionIdTask = _grainFactory
+                .GetGrain<IActiveChatSessionGrain>(request.GroupId)
+                .GetSessionAsync();
 
             await Task.WhenAll(presenceTask, sessionIdTask);
 
