@@ -1,4 +1,4 @@
-﻿using Application.Abstractions.Cache;
+using Application.Abstractions.Cache;
 using Application.Abstractions.Grain;
 using Application.Abstractions.Repositories.ChatMember;
 using Application.Abstractions.Repositories.MessageReceipts;
@@ -14,30 +14,31 @@ using Infrastructure.Services.Ack;
 using Microsoft.Extensions.Logging;
 using Orleans.Concurrency;
 using System.Diagnostics;
-using System.Threading.Channels;
 
-[Reentrant]
+/// <summary>
+/// Refactored AckGrain:
+/// 1. Removed [Reentrant] - Relying on Orleans' single-threaded model.
+/// 2. Removed Channel-based batching - Orleans handles message queuing.
+/// 3. Direct processing for predictable performance.
+/// </summary>
 public sealed class AckGrain : Grain, IAckGrain
 {
     private readonly IPersistentState<ChatAckState> _persistentState;
     private AckEngine? _engine;
-    private readonly Channel<AckReceived> _channel;
     private readonly ILogger<AckGrain> _logger;
     private HashSet<string>? _members;
     private int _memberCount;
     private bool _initialized;
     private long _processedCount;
-    private long _deliveryGlobalCount;
-    private long _readGlobalCount;
     private readonly Stopwatch _uptime = new();
     private readonly IMessagePublisher _publisher;
     private readonly IChatMemberCommandRepository _repository;
     private readonly IMessageReceiptsCommandRepository _Msgrepository;
     private readonly IChatMemberCache _memberCache;
-    private const int BATCH_SIZE = 50;           // أصغر لسهولة الاختبار
-    private const int BATCH_TIMEOUT_MS = 500;    // Timeout أطول للـ batch
 
-    private readonly CancellationTokenSource _queueCts = new();
+    // Batching for DB updates (Message Receipts)
+    private readonly List<UpdateMessageReceiptsDto> _pendingReceipts = new();
+    private IDisposable? _flushTimer;
 
     public AckGrain(
         [PersistentState("ackState", "AckStore")] IPersistentState<ChatAckState> persistentState,
@@ -53,12 +54,6 @@ public sealed class AckGrain : Grain, IAckGrain
         _publisher = publisher;
         _repository = repository;
         _memberCache = memberCache;
-        _channel = Channel.CreateUnbounded<AckReceived>(new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = false,
-            AllowSynchronousContinuations = false
-        });
     }
 
     public override async Task OnActivateAsync(CancellationToken ct)
@@ -66,7 +61,6 @@ public sealed class AckGrain : Grain, IAckGrain
         _uptime.Start();
         
         var chatId = this.GetPrimaryKeyString();
-       
         LogDebug("Activating Grain", chatId);
 
         _members = await LoadMembersAsync(chatId, ct);
@@ -74,130 +68,71 @@ public sealed class AckGrain : Grain, IAckGrain
 
         _engine = new AckEngine(_persistentState.State, _memberCount);
 
-        RegisterTimer(
-            async _ => await _engine.FlushAsync(_persistentState),
+        _flushTimer = RegisterTimer(
+            async _ => await FlushInternalAsync(),
             state: null,
             dueTime: TimeSpan.FromMilliseconds(500),
             period: TimeSpan.FromMilliseconds(500)
         );
 
         _initialized = true;
-
-        // Start batch processing loop with independent token
-        _ = Task.Run(() => ProcessBatchesAsync(_queueCts.Token));
-
         LogDebug($"Grain activated with {_memberCount} members", chatId);
     }
 
-    public ValueTask<AckResult> ReceiveAsync(AckReceived ack)
+    public async ValueTask<AckResult> ReceiveAsync(AckReceived ack)
     {
         if (!_initialized) throw new InvalidOperationException("Grain not initialized");
-        if (ack.ChatId != this.GetPrimaryKeyString()) throw new ArgumentException("ChatId mismatch");
 
-        if (_channel.Writer.TryWrite(ack))
-        {
-            LogDebug("ACK queued in channel", ack.ChatId, ack.MessageId);
-            return new ValueTask<AckResult>(new AckResult(ack.UserId, ack.MessageId, null, null, false, ack.Type));
-        }
-        else
-        {
-            LogWarning("Channel busy, processing ACK directly", ack.ChatId, ack.MessageId);
-            return new ValueTask<AckResult>(ProcessDirect(ack));
-        }
-    }
-
-   private async Task ProcessBatchesAsync(CancellationToken ct)
-{
-    try
-    {
-        LogPerf("Batch processing loop started");
-
-        await foreach (var batch in _channel.Reader.ReadBatchesAsync(BATCH_SIZE, TimeSpan.FromMilliseconds(BATCH_TIMEOUT_MS), ct))
-        {
-            var sw = Stopwatch.StartNew();
-            LogPerf($"Batch received: Count={batch.Count}");
-
-            // 🚀 Step 1: Dedup + Merge في Dictionary واحد
-            var latest = new Dictionary<string, (string MsgId, AckType Type, DateTime Ts)>(batch.Count / 2);
-            
-            foreach (var ack in batch)
-            {
-                ProcessDirect(ack);
-
-                if (latest.TryGetValue(ack.UserId, out var curr))
-                {
-                    var cmp = string.CompareOrdinal(ack.MessageId, curr.MsgId);
-                    
-                    if (cmp > 0)
-                        latest[ack.UserId] = (ack.MessageId, ack.Type, ack.Timestamp);
-                    else if (cmp == 0 && ack.Type == AckType.Seen && curr.Type == AckType.Delivery)
-                        latest[ack.UserId] = (ack.MessageId, AckType.Seen, ack.Timestamp);
-                }
-                else
-                {
-                    latest[ack.UserId] = (ack.MessageId, ack.Type, ack.Timestamp);
-                }
-            }
-
-            // 🚀 Step 2: Build DTOs
-            var receipts = new List<UpdateMessageReceiptsDto>(latest.Count);
-            
-            foreach (var (userId, (msgId, type, ts)) in latest)
-            {
-                receipts.Add(new UpdateMessageReceiptsDto
-                {
-                    UserId = userId,
-                    MessageId = msgId,
-                    ChatId = this.GetPrimaryKeyString(),
-                    Status =  type,
-                    DeliveredAt = type == AckType.Delivery ? ts : null,
-                    ReadAt = type == AckType.Seen ? ts : null
-                });
-            }
-
-             if (receipts.Count > 0)
-                await _Msgrepository.BulkUpdateMessageReceiptsAsync(receipts);
-
-                sw.Stop();
-            
-                LogPerf($"Batch processed: Count={batch.Count}, Unique={receipts.Count}, TotalMs={sw.ElapsedMilliseconds}");
-        }
-    }
-    catch (OperationCanceledException)
-    {
-        LogWarning("Batch processing loop cancelled");
-    }
-    catch (Exception ex)
-    {
-        LogError($"Batch processing loop crashed: {ex}");
-    }
-}
-   
-    private AckResult ProcessDirect(AckReceived ack)
-    {
         var sw = Stopwatch.StartNew();
 
+        // Direct process (thread-safe due to Orleans model)
         AckResult result = ack.Type == AckType.Delivery
                     ? _engine!.UpdateDelivery(ack.UserId, ack.MessageId)
                     : _engine!.UpdateRead(ack.UserId, ack.MessageId);
 
-        
-        Interlocked.Increment(ref _processedCount);
+        _pendingReceipts.Add(new UpdateMessageReceiptsDto
+        {
+            UserId = ack.UserId,
+            MessageId = ack.MessageId,
+            ChatId = ack.ChatId,
+            Status = ack.Type,
+            DeliveredAt = ack.Type == AckType.Delivery ? ack.Timestamp : null,
+            ReadAt = ack.Type == AckType.Seen ? ack.Timestamp : null
+        });
 
+        _processedCount++;
         sw.Stop();
-        
 
         if (result.IsGlobalChanged)
         {
-            if (ack.Type == AckType.Delivery) Interlocked.Increment(ref _deliveryGlobalCount);
-           
-            else Interlocked.Increment(ref _readGlobalCount);
-
-            _ = PublishGlobalAsync(ack, result);
+            await PublishGlobalAsync(ack, result);
         }
 
         return result;
     }
+
+    private async Task FlushInternalAsync()
+    {
+        try
+        {
+            if (_pendingReceipts.Count > 0)
+            {
+                // Bulk update DB
+                await _Msgrepository.BulkUpdateMessageReceiptsAsync(new List<UpdateMessageReceiptsDto>(_pendingReceipts));
+                _pendingReceipts.Clear();
+            }
+
+            if (_engine != null)
+            {
+                await _engine.FlushAsync(_persistentState);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogError($"Flush failed: {ex.Message}");
+        }
+    }
+
     private async Task PublishGlobalAsync(AckReceived ack, AckResult result)
     {
         try
@@ -211,22 +146,22 @@ public sealed class AckGrain : Grain, IAckGrain
                 ReceiverId = result.UserId,
                 SanderId = ack.SenderId
             });
-            LogDebug($"GlobalAckEvent published", ack.ChatId, ack.MessageId);
         }
         catch (Exception ex)
         {
             LogError($"Publish failed: {ex.Message}", ack.ChatId, ack.MessageId);
         }
     }
+
     public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken ct)
     {
-        _queueCts.Cancel();
-        _channel.Writer.Complete();
         _uptime.Stop();
+        _flushTimer?.Dispose();
+
+        await FlushInternalAsync();
 
         if (_engine != null)
         {
-            await _engine.EmergencyFlushAsync(_persistentState, TimeSpan.FromSeconds(5));
             _engine.Dispose();
         }
 
@@ -249,47 +184,37 @@ public sealed class AckGrain : Grain, IAckGrain
 
     public ValueTask<GlobalMinResult> GetGlobalMinsAsync()
     {
-        throw new NotImplementedException();
+        var (d, r) = _engine?.GetGlobalMins() ?? (null, null);
+        return new ValueTask<GlobalMinResult>(new GlobalMinResult(d, r));
     }
 
     public ValueTask<bool> IsMessageFullyAckedAsync(string messageId)
     {
-        throw new NotImplementedException();
+        return new ValueTask<bool>(_engine?.IsFullyRead(messageId) ?? false);
     }
 
     public ValueTask<GrainStats> GetStatsAsync()
     {
-        throw new NotImplementedException();
+        return new ValueTask<GrainStats>(new GrainStats(
+            this.GetPrimaryKeyString(),
+            _processedCount,
+            0, // BatchCount is not explicitly tracked now
+            0, // GlobalAckCount is not explicitly tracked now
+            _uptime.ElapsedMilliseconds,
+            _memberCount,
+            _pendingReceipts.Count));
     }
 
 
     #region Logging Helpers
     private void LogDebug(string message, string chatId = null, string messageId = null)
     {
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine($"{DateTime.UtcNow:HH:mm:ss.fff} [DEBUG]{(chatId != null ? $" Chat:{chatId}" : "")}{(messageId != null ? $" Msg:{messageId}" : "")} {message}");
-        Console.ResetColor();
-    }
-
-    private void LogPerf(string message, string chatId = null, string messageId = null)
-    {
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine($"{DateTime.UtcNow:HH:mm:ss.fff} [PERF]{(chatId != null ? $" Chat:{chatId}" : "")}{(messageId != null ? $" Msg:{messageId}" : "")} {message}");
-        Console.ResetColor();
+        _logger.LogDebug("{ChatId} {MessageId} {Message}", chatId, messageId, message);
     }
 
     private void LogError(string message, string chatId = null, string messageId = null)
     {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"{DateTime.UtcNow:HH:mm:ss.fff} [ERROR]{(chatId != null ? $" Chat:{chatId}" : "")}{(messageId != null ? $" Msg:{messageId}" : "")} {message}");
-        Console.ResetColor();
-    }
-
-    private void LogWarning(string message, string chatId = null, string messageId = null)
-    {
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine($"{DateTime.UtcNow:HH:mm:ss.fff} [WARN]{(chatId != null ? $" Chat:{chatId}" : "")}{(messageId != null ? $" Msg:{messageId}" : "")} {message}");
-        Console.ResetColor();
+        _logger.LogError("{ChatId} {MessageId} {Message}", chatId, messageId, message);
     }
     #endregion
 

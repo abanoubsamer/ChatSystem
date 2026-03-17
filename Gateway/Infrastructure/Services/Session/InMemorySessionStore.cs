@@ -1,54 +1,66 @@
-﻿using Application.Abstractions.CallSessionStore;
-using Application.Dtos.Connection;
+using Application.Abstractions.CallSessionStore;
+using Application.Abstractions.Connection.Grains;
 using Contracts.Call.Session;
-using System.Collections.Concurrent;
-
+using Microsoft.Extensions.Logging;
 
 namespace Infrastructure.Services.Session
 {
-    public class InMemorySessionStore : ICallSessionStore
+    /// <summary>
+    /// Refactored Session Store that now delegates to Orleans Grains.
+    /// This eliminates process-local state and allows call management across all nodes.
+    /// </summary>
+    public sealed class InMemorySessionStore : ICallSessionStore
     {
-        private readonly ConcurrentDictionary<string, SessionCallInfo> _sessions = new();
-        private readonly ConcurrentDictionary<string, string> _chatIndex = new();
+        private readonly IGrainFactory _grainFactory;
+        private readonly ILogger<InMemorySessionStore> _logger;
 
-        // ─── Session CRUD ────────────────────────────────────────────────────
-
-        public Task<SessionCallInfo?> GetAsync(string sessionId)
+        public InMemorySessionStore(IGrainFactory grainFactory, ILogger<InMemorySessionStore> logger)
         {
-            _sessions.TryGetValue(sessionId, out var session);
-            return Task.FromResult(session);
+            _grainFactory = grainFactory;
+            _logger = logger;
         }
 
-        public Task SetAsync(string sessionId, SessionCallInfo info)
+        public async Task<SessionCallInfo?> GetAsync(string sessionId)
         {
-            _sessions[sessionId] = info;
-            return Task.CompletedTask;
+            var grain = _grainFactory.GetGrain<ICallSessionGrain>(sessionId);
+            return await grain.GetSessionAsync();
         }
 
-        public Task RemoveAsync(string sessionId)
+        public async Task SetAsync(string sessionId, SessionCallInfo info)
         {
-            _sessions.TryRemove(sessionId, out _);
-            return Task.CompletedTask;
+            var grain = _grainFactory.GetGrain<ICallSessionGrain>(sessionId);
+            await grain.StartSessionAsync(info);
+
+            // Update the index mapping ChatId -> SessionId
+            var indexGrain = _grainFactory.GetGrain<IChatCallIndexGrain>(info.ChatId);
+            await indexGrain.SetSessionIdAsync(sessionId);
+        }
+
+        public async Task RemoveAsync(string sessionId)
+        {
+            // Call StopSessionAsync on the grain, which will also clean up the index.
+            var grain = _grainFactory.GetGrain<ICallSessionGrain>(sessionId);
+            await grain.StopSessionAsync();
         }
 
         // ─── ChatId → SessionId Index ────────────────────────────────────────
 
-        public Task<string?> GetActiveSessionByChatIdAsync(string chatId)
+        public async Task<string?> GetActiveSessionByChatIdAsync(string chatId)
         {
-            _chatIndex.TryGetValue(chatId, out var sessionId);
-            return Task.FromResult(sessionId);
+            var indexGrain = _grainFactory.GetGrain<IChatCallIndexGrain>(chatId);
+            return await indexGrain.GetSessionIdAsync();
         }
 
-        public Task SetActiveChatSessionAsync(string chatId, string sessionId)
+        public async Task SetActiveChatSessionAsync(string chatId, string sessionId)
         {
-            _chatIndex[chatId] = sessionId;
-            return Task.CompletedTask;
+            var indexGrain = _grainFactory.GetGrain<IChatCallIndexGrain>(chatId);
+            await indexGrain.SetSessionIdAsync(sessionId);
         }
 
-        public Task RemoveActiveChatSessionAsync(string chatId)
+        public async Task RemoveActiveChatSessionAsync(string chatId)
         {
-            _chatIndex.TryRemove(chatId, out _);
-            return Task.CompletedTask;
+            var indexGrain = _grainFactory.GetGrain<IChatCallIndexGrain>(chatId);
+            await indexGrain.RemoveSessionIdAsync();
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿using Application.Dtos.Ack;
+using Application.Dtos.Ack;
 using Domain.Models;
 using Domain.Models.Result;
 using Domain.Models.State;
@@ -12,62 +12,48 @@ using System.Threading.Tasks;
 
 namespace Infrastructure.Services.Ack
 {
-
     /// <summary>
-    /// Dual-state engine managing both Delivery and Read acks
+    /// Dual-state engine managing both Delivery and Read acks.
+    /// Refactored to remove manual locks, relying on Orleans Grain's single-threaded execution.
     /// </summary>
     public sealed class AckEngine : IDisposable
     {
-        // Fast in-memory (hot path) - YOUR UltraFastAckState
+        // Fast in-memory (hot path)
         private readonly AckStateDs _fastState;
-        // Reference to Orleans persistent state
-        private readonly ChatAckState _persistentState;
+
         private readonly Dictionary<string, string> _pendingDelivery; 
         private readonly Dictionary<string, string> _pendingRead;    
-        private readonly object _lock = new();
-        private bool _isDirty;
-        private bool _isFlushing;
 
-        public AckEngine(
-            ChatAckState persistentState,
-            int memberCount)
+        public AckEngine(ChatAckState persistentState, int memberCount)
         {
-            _persistentState = persistentState;
             _fastState = new AckStateDs(memberCount);
             _pendingDelivery = new Dictionary<string, string>();
             _pendingRead = new Dictionary<string, string>();
-            HydrateFromPersistent();
+
+            HydrateFromPersistent(persistentState);
         }
 
-        private void HydrateFromPersistent()
+        private void HydrateFromPersistent(ChatAckState persistentState)
         {
-            //// Load delivery watermarks
-            //foreach (var (userId, msgId) in _persistentState.DeliveryWatermarks)
-            //{
-            //    _fastState.UpdateDelivery(userId, msgId);
-            //}
+            foreach (var (userId, msgId) in persistentState.DeliveryWatermarks)
+            {
+                _fastState.UpdateDelivery(userId, msgId);
+            }
 
-            //// Load read watermarks
-            //foreach (var (userId, msgId) in _persistentState.ReadWatermarks)
-            //{
-            //    _fastState.UpdateRead(userId, msgId);
-            //}
+            foreach (var (userId, msgId) in persistentState.ReadWatermarks)
+            {
+                _fastState.UpdateRead(userId, msgId);
+            }
         }
 
         /// <summary>
-        /// O(1) amortized - Ultra fast with automatic persistence
+        /// O(1) amortized - Ultra fast
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public AckResult UpdateDelivery(string userId, string msgId)
         {
             var result = _fastState.UpdateDelivery(userId, msgId);
-
-            // ✅ O(1) - Overwrite if exists
-            lock (_lock)
-            {
-                _pendingDelivery[userId] = msgId;
-            }
-
+            _pendingDelivery[userId] = msgId;
             return result;
         }
 
@@ -75,38 +61,26 @@ namespace Infrastructure.Services.Ack
         public AckResult UpdateRead(string userId, string msgId)
         {
             var result = _fastState.UpdateRead(userId, msgId);
-
-            // ✅ O(1) - Overwrite if exists
-            lock (_lock)
-            {
-                _pendingRead[userId] = msgId;
-            }
-
+            _pendingRead[userId] = msgId;
             return result;
         }
 
-
         /// <summary>
-        /// O(u) - u = unique users, already deduped!
+        /// Flushes pending changes to the persistent state.
+        /// Guaranteed to be called from the Grain's single-threaded context.
         /// </summary>
         public async Task FlushAsync(IPersistentState<ChatAckState> persistentState)
         {
-            Dictionary<string, string> batchD, batchR;
+            if (_pendingDelivery.Count == 0 && _pendingRead.Count == 0) return;
 
-            lock (_lock)
-            {
-                if (_pendingDelivery.Count == 0 && _pendingRead.Count == 0) return;
-                batchD = new Dictionary<string, string>(_pendingDelivery);
-                batchR = new Dictionary<string, string>(_pendingRead);
-                _pendingDelivery.Clear();
-                _pendingRead.Clear();
-            }
-
-            foreach (var (userId, msgId) in batchD)
+            foreach (var (userId, msgId) in _pendingDelivery)
                 persistentState.State.DeliveryWatermarks[userId] = msgId;
 
-            foreach (var (userId, msgId) in batchR)
+            foreach (var (userId, msgId) in _pendingRead)
                 persistentState.State.ReadWatermarks[userId] = msgId;
+
+            _pendingDelivery.Clear();
+            _pendingRead.Clear();
 
             var (dMin, rMin) = _fastState.GetGlobalMins();
             persistentState.State.GlobalDeliveryMin = dMin;
@@ -116,16 +90,6 @@ namespace Infrastructure.Services.Ack
             await persistentState.WriteStateAsync();
         }
 
-        /// <summary>
-        /// Emergency sync flush (for deactivation)
-        /// </summary>
-        public async Task EmergencyFlushAsync(IPersistentState<ChatAckState> persistentState, TimeSpan timeout)
-        {
-            using var cts = new CancellationTokenSource(timeout);
-            await FlushAsync(persistentState);
-        }
-
-        // Pass-through to fast state
         public (string? DeliveryMin, string? ReadMin) GetGlobalMins() =>
             _fastState.GetGlobalMins();
 
@@ -139,12 +103,5 @@ namespace Infrastructure.Services.Ack
         {
             _fastState.Dispose();
         }
-
-        private readonly record struct PendingAck(
-            string UserId,
-            string MsgId,
-            AckType Type,
-            DateTime Timestamp
-        );
     }
 }
