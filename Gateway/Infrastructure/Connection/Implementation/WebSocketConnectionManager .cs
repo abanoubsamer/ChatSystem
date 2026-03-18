@@ -61,7 +61,7 @@ namespace Infrastructure.Connection.Implementation
             _connectionId = await _connectionServices.ConnectAsync(userId, socket);
 
             _metrics.IncrementCounter("connections.active",
-                new KeyValuePair<string, object?>("user.id", userId));
+             "user.id", userId);
 
             _logger.LogInformation(
                 "Connection initialized | userId={UserId} | connectionId={ConnectionId}",
@@ -86,7 +86,7 @@ namespace Infrastructure.Connection.Implementation
             _connectionId = await _connectionServices.ConnectAsync(userId, context, cancellationToken);
 
             _metrics.IncrementCounter("connections.active",
-                new KeyValuePair<string, object?>("user.id", userId));
+                "user.id", userId);
 
             _logger.LogInformation(
                 "Connection initialized with context | userId={UserId} | connectionId={ConnectionId}",
@@ -131,7 +131,7 @@ namespace Infrastructure.Connection.Implementation
             finally
             {
                 _metrics.DecrementCounter("connections.active",
-                    new KeyValuePair<string, object?>("user.id", _userId));
+                   "user.id", _userId);
 
                 _logger.LogInformation(
                     "Connection closed | userId={UserId} | connectionId={ConnectionId}",

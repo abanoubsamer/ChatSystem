@@ -43,8 +43,7 @@ namespace Infrastructure.Pipeline.Middlewares
                     "Rate limit exceeded | userId={UserId} | connectionId={ConnectionId} | retryAfter={RetryAfter}s",
                     context.UserId, context.ConnectionId, result.RetryAfter.TotalSeconds);
 
-                _metrics.IncrementCounter("ratelimit.exceeded",
-                    new KeyValuePair<string, object?>("user.id", context.UserId));
+                _metrics.IncrementCounter("ratelimit.exceeded","user.id", context.UserId);
 
                 await context.SendErrorAsync(
                     Guid.NewGuid().ToString("N"),

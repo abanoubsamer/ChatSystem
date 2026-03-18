@@ -42,9 +42,9 @@ namespace Infrastructure.Pipeline.Middlewares
                 "Decompressed message | userId={UserId} | original={Original}b | decompressed={Decompressed}b",
                 context.UserId, payload.Length, decompressed.Length);
 
-            _metrics.IncrementCounter("message.decompressed",
-                new KeyValuePair<string, object?>("user.id", context.UserId),
-                new KeyValuePair<string, object?>("ratio", (double)decompressed.Length / payload.Length));
+            _metrics.IncrementCounter("message.decompressed",                                            
+                "user.id", context.UserId,"ratio", 
+                (double)decompressed.Length / payload.Length);
 
             // يمرر الـ payload الجديد (المفكوك) للـ middleware الجاي
             await next(context, decompressed, ct);

@@ -22,6 +22,7 @@ using Application.Handlers.Sync;
 using Infrastructure.Compression;
 using Infrastructure.Connection.Implementation;
 using Infrastructure.Metrics;
+using Infrastructure.Metrics.Infrastructure.Metrics;
 using Infrastructure.Pipeline;
 using Infrastructure.Pipeline.Middlewares;
 using Infrastructure.Repositories.GenaricRepo;

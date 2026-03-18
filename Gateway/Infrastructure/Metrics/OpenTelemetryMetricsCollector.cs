@@ -1,62 +1,219 @@
 ﻿using Application.Abstractions.Metrics;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 
-
-
 namespace Infrastructure.Metrics
 {
-    public sealed class OpenTelemetryMetricsCollector : IMetricsCollector
+    using Application.Abstractions.Metrics;
+    using System.Collections.Frozen;
+    using System.Collections.Concurrent;
+    using System.Diagnostics;
+    using System.Diagnostics.Metrics;
+
+    namespace Infrastructure.Metrics
     {
-        private readonly Meter _meter;
-
-        public OpenTelemetryMetricsCollector()
+        public sealed class OpenTelemetryMetricsCollector : IMetricsCollector, IDisposable
         {
-            _meter = new Meter("ChatSystem.Gateway", "1.0.0");
-        }
+            private readonly Meter _meter;
 
-        public void IncrementCounter(string name, params KeyValuePair<string, object?>[] tags)
-        {
-            var counter = _meter.CreateCounter<long>(name);
-            counter.Add(1, tags.ToArray());
-        }
+            // ✅ FrozenDictionary للـ pre-warmed metrics — أسرع من ConcurrentDictionary في القراءة
+            private readonly FrozenDictionary<string, Counter<long>> _knownCounters;
+            private readonly FrozenDictionary<string, Histogram<double>> _knownHistograms;
 
-        public void DecrementCounter(string name, params KeyValuePair<string, object?>[] tags)
-        {
-            var counter = _meter.CreateCounter<long>(name);
-            counter.Add(-1, tags.ToArray());
-        }
+            // ✅ للـ dynamic metrics (غير معروفة وقت الـ startup)
+            private readonly ConcurrentDictionary<string, Counter<long>> _dynamicCounters = new();
+            private readonly ConcurrentDictionary<string, Histogram<double>> _dynamicHistograms = new();
+            private readonly ConcurrentDictionary<string, GaugeEntry> _gauges = new();
 
-        public void RecordHistogram(string name, double value, params KeyValuePair<string, object?>[] tags)
-        {
-            var histogram = _meter.CreateHistogram<double>(name);
-            histogram.Record(value, tags.ToArray());
-        }
-
-        public void RecordGauge(string name, double value, params KeyValuePair<string, object?>[] tags)
-        {
-            _meter.CreateObservableGauge<double>(name, () =>
-                new Measurement<double>(value, tags.Select(kv => new KeyValuePair<string, object?>(kv.Key, kv.Value)).ToArray())
-            );
-        }
-
-        public IDisposable BeginScope(params KeyValuePair<string, object?>[] tags)
-        {
-            // Can integrate with ILogger.BeginScope or Activity.Current
-            var activity = Activity.Current;
-            if (activity != null)
+            public OpenTelemetryMetricsCollector()
             {
-                foreach (var tag in tags)
+                _meter = new Meter("ChatSystem.Gateway", "1.0.0");
+
+                // ✅ Pre-warm: كل الـ metrics المعروفة بتتعمل مرة واحدة عند الـ startup
+                // zero dictionary lookup overhead على الـ hot path
+                _knownCounters = new Dictionary<string, Counter<long>>
                 {
-                    activity.SetTag(tag.Key, tag.Value);
+                    ["connections.active"] = _meter.CreateCounter<long>("connections.active"),
+                    ["message.dispatched"] = _meter.CreateCounter<long>("message.dispatched"),
+                    ["message.decompressed"] = _meter.CreateCounter<long>("message.decompressed"),
+                    ["message.validation.errors"] = _meter.CreateCounter<long>("message.validation.errors"),
+                    ["message.processing.errors"] = _meter.CreateCounter<long>("message.processing.errors"),
+                    ["ratelimit.exceeded"] = _meter.CreateCounter<long>("ratelimit.exceeded"),
+                }.ToFrozenDictionary();
+
+                _knownHistograms = new Dictionary<string, Histogram<double>>
+                {
+                    ["message.processing.duration_ms"] = _meter.CreateHistogram<double>("message.processing.duration_ms"),
+                }.ToFrozenDictionary();
+            }
+
+            // ─── Counter ─────────────────────────────────────────────────────────────
+
+            /// <summary>Hot path — zero allocation للـ pre-warmed metrics</summary>
+            public void IncrementCounter(string name)
+            {
+                GetOrCreateCounter(name).Add(1);
+            }
+
+            /// <summary>Hot path — TagList على الـ Stack، مفيش heap allocation</summary>
+            public void IncrementCounter(string name, string tagKey, object? tagValue)
+            {
+                // ✅ TagList = stack-allocated struct, مش array على الـ heap
+                var tags = new TagList { { tagKey, tagValue } };
+                GetOrCreateCounter(name).Add(1, tags);
+            }
+
+            /// <summary>Hot path — 2 tags بدون params array</summary>
+            public void IncrementCounter(string name,
+                string key1, object? val1,
+                string key2, object? val2)
+            {
+                var tags = new TagList { { key1, val1 }, { key2, val2 } };
+                GetOrCreateCounter(name).Add(1, tags);
+            }
+
+            /// <summary>Slow path — للـ dynamic tags (3+)</summary>
+            public void IncrementCounter(string name, params KeyValuePair<string, object?>[] tags)
+            {
+                var tagList = new TagList();
+                foreach (var tag in tags)
+                    tagList.Add(tag);
+
+                GetOrCreateCounter(name).Add(1, tagList);
+            }
+
+            public void DecrementCounter(string name, string tagKey, object? tagValue)
+            {
+                var tags = new TagList { { tagKey, tagValue } };
+                GetOrCreateCounter(name).Add(-1, tags);
+            }
+
+            public void DecrementCounter(string name, params KeyValuePair<string, object?>[] tags)
+            {
+                var tagList = new TagList();
+                foreach (var tag in tags)
+                    tagList.Add(tag);
+
+                GetOrCreateCounter(name).Add(-1, tagList);
+            }
+
+            // ─── Histogram ───────────────────────────────────────────────────────────
+
+            public void RecordHistogram(string name, double value, string tagKey, object? tagValue)
+            {
+                var tags = new TagList { { tagKey, tagValue } };
+                GetOrCreateHistogram(name).Record(value, tags);
+            }
+
+            public void RecordHistogram(string name, double value,
+                string key1, object? val1,
+                string key2, object? val2)
+            {
+                var tags = new TagList { { key1, val1 }, { key2, val2 } };
+                GetOrCreateHistogram(name).Record(value, tags);
+            }
+
+            public void RecordHistogram(string name, double value, params KeyValuePair<string, object?>[] tags)
+            {
+                var tagList = new TagList();
+                foreach (var tag in tags)
+                    tagList.Add(tag);
+
+                GetOrCreateHistogram(name).Record(value, tagList);
+            }
+
+            // ─── Gauge ───────────────────────────────────────────────────────────────
+
+            public void RecordGauge(string name, double value, params KeyValuePair<string, object?>[] tags)
+            {
+                _gauges.AddOrUpdate(
+                    key: name,
+                    addValueFactory: n =>
+                    {
+                        var entry = new GaugeEntry(value, tags);
+                        _meter.CreateObservableGauge<double>(n, () =>
+                            new Measurement<double>(entry.Value, entry.Tags));
+                        return entry;
+                    },
+                    updateValueFactory: (_, existing) =>
+                    {
+                        existing.Update(value, tags);
+                        return existing;
+                    });
+            }
+
+            // ─── Scope ───────────────────────────────────────────────────────────────
+
+            public IDisposable BeginScope(params KeyValuePair<string, object?>[] tags)
+            {
+                var activity = Activity.Current;
+                if (activity is not null)
+                {
+                    foreach (var tag in tags)
+                        activity.SetTag(tag.Key, tag.Value);
+                }
+                return NoOpDisposable.Instance; // ✅ static singleton — zero allocation
+            }
+
+            // ─── Dispose ─────────────────────────────────────────────────────────────
+
+            public void Dispose() => _meter.Dispose();
+
+            // ─── Private Helpers ─────────────────────────────────────────────────────
+
+            [System.Runtime.CompilerServices.MethodImpl(
+                System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+            private Counter<long> GetOrCreateCounter(string name)
+            {
+                // ✅ FrozenDictionary lookup أول — أسرع path لأي metric معروف
+                if (_knownCounters.TryGetValue(name, out var known))
+                    return known;
+
+                // Fallback للـ dynamic metrics
+                return _dynamicCounters.GetOrAdd(name, n => _meter.CreateCounter<long>(n));
+            }
+
+            [System.Runtime.CompilerServices.MethodImpl(
+                System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+            private Histogram<double> GetOrCreateHistogram(string name)
+            {
+                if (_knownHistograms.TryGetValue(name, out var known))
+                    return known;
+
+                return _dynamicHistograms.GetOrAdd(name, n => _meter.CreateHistogram<double>(n));
+            }
+
+            // ─── Inner Types ─────────────────────────────────────────────────────────
+
+            private sealed class GaugeEntry
+            {
+                private double _value;
+                private KeyValuePair<string, object?>[] _tags;
+
+                // ✅ Volatile بدل lock للـ simple read/write على الـ gauge
+                public double Value => Volatile.Read(ref _value);
+                public KeyValuePair<string, object?>[] Tags => Volatile.Read(ref _tags);
+
+                public GaugeEntry(double value, KeyValuePair<string, object?>[] tags)
+                {
+                    _value = value;
+                    _tags = tags;
+                }
+
+                public void Update(double value, KeyValuePair<string, object?>[] tags)
+                {
+                    Volatile.Write(ref _value, value);
+                    Volatile.Write(ref _tags, tags);
                 }
             }
-            return new NoOpDisposable();
-        }
 
-        private class NoOpDisposable : IDisposable
-        {
-            public void Dispose() { }
+            private sealed class NoOpDisposable : IDisposable
+            {
+                public static readonly NoOpDisposable Instance = new();
+                private NoOpDisposable() { }
+                public void Dispose() { }
+            }
         }
     }
 }

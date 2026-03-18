@@ -58,7 +58,7 @@ namespace Infrastructure.Pipeline.Middlewares
                     context.UserId, context.ConnectionId);
 
                 _metrics.IncrementCounter("message.validation.errors",
-                    new KeyValuePair<string, object?>("user.id", context.UserId));
+                    "user.id", context.UserId);
 
                 await context.SendErrorAsync(
                     envelope?.MessageId ?? Guid.NewGuid().ToString("N"),
@@ -74,8 +74,8 @@ namespace Infrastructure.Pipeline.Middlewares
                 envelope.Method, envelope.MessageId, context.UserId);
 
             _metrics.IncrementCounter("message.dispatched",
-                new KeyValuePair<string, object?>("user.id", context.UserId),
-                new KeyValuePair<string, object?>("method", envelope.Method));
+              "user.id", context.UserId,
+               "method", envelope.Method);
 
             await _dispatcher.DispatchAsync(context, envelope.Method, envelope.Params, ct);
         }

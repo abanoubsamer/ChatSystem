@@ -10,7 +10,11 @@ namespace Infrastructure.Pipeline.Middlewares
         private readonly IMetricsCollector _metrics;
         private static readonly ActivitySource _activitySource =
             new ActivitySource("ChatGateway.MessagePipeline", "1.0.0");
-
+        private const string TagUserId = "user.id";
+        private const string TagConnectionId = "connection.id";
+        private const string TagMessageSize = "message.size";
+        private const string TagStatus = "status";
+        private const string TagErrorType = "error.type";
         public MetricsMiddleware(IMetricsCollector metrics)
             => _metrics = metrics;
 
@@ -21,16 +25,11 @@ namespace Infrastructure.Pipeline.Middlewares
             CancellationToken ct)
         {
             using var activity = _activitySource.StartActivity(
-                "ProcessMessage",
-                ActivityKind.Server,
-                parentContext: default,
-                tags: new[]
-                {
-                    new KeyValuePair<string, object?>("user.id", context.UserId),
-                    new KeyValuePair<string, object?>("connection.id", context.ConnectionId),
-                    new KeyValuePair<string, object?>("message.size", payload.Length),
-                });
-
+                 "ProcessMessage",
+                 ActivityKind.Server);
+                    activity?.SetTag(TagUserId, context.UserId);
+                    activity?.SetTag(TagConnectionId, context.ConnectionId);
+                    activity?.SetTag(TagMessageSize, payload.Length);
             var sw = Stopwatch.StartNew();
 
             try
@@ -38,11 +37,12 @@ namespace Infrastructure.Pipeline.Middlewares
                 await next(context, payload, ct);
                 sw.Stop();
 
+                // ✅ الـ overload بتاع 2 tags — zero heap allocation (TagList على الـ Stack)
                 _metrics.RecordHistogram(
                     "message.processing.duration_ms",
                     sw.Elapsed.TotalMilliseconds,
-                    new KeyValuePair<string, object?>("user.id", context.UserId),
-                    new KeyValuePair<string, object?>("status", "success"));
+                    TagUserId, context.UserId,
+                    TagStatus, "success");
 
                 activity?.SetStatus(ActivityStatusCode.Ok);
             }
@@ -50,16 +50,17 @@ namespace Infrastructure.Pipeline.Middlewares
             {
                 sw.Stop();
 
-                _metrics.IncrementCounter("message.processing.errors",
-                    new KeyValuePair<string, object?>("user.id", context.UserId),
-                    new KeyValuePair<string, object?>("error.type", ex.GetType().Name));
+                _metrics.IncrementCounter(
+                    "message.processing.errors",
+                    TagUserId, context.UserId,
+                    TagErrorType, ex.GetType().Name);
 
                 activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                 activity?.AddEvent(new ActivityEvent("exception",
                     tags: new ActivityTagsCollection
                     {
-                        { "exception.type", ex.GetType().FullName },
-                        { "exception.message", ex.Message }
+                        ["exception.type"] = ex.GetType().FullName,
+                        ["exception.message"] = ex.Message
                     }));
 
                 throw;
