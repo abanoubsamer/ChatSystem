@@ -17,12 +17,12 @@ namespace Infrastructure.Metrics
         {
             private readonly Meter _meter;
 
-            // ✅ FrozenDictionary للـ pre-warmed metrics — أسرع من ConcurrentDictionary في القراءة
-            private readonly FrozenDictionary<string, Counter<long>> _knownCounters;
+           
+            private readonly FrozenDictionary<string, UpDownCounter<long>> _knownCounters;
             private readonly FrozenDictionary<string, Histogram<double>> _knownHistograms;
 
-            // ✅ للـ dynamic metrics (غير معروفة وقت الـ startup)
-            private readonly ConcurrentDictionary<string, Counter<long>> _dynamicCounters = new();
+           
+            private readonly ConcurrentDictionary<string, UpDownCounter<long>> _dynamicCounters = new();
             private readonly ConcurrentDictionary<string, Histogram<double>> _dynamicHistograms = new();
             private readonly ConcurrentDictionary<string, GaugeEntry> _gauges = new();
 
@@ -30,16 +30,15 @@ namespace Infrastructure.Metrics
             {
                 _meter = new Meter("ChatSystem.Gateway", "1.0.0");
 
-                // ✅ Pre-warm: كل الـ metrics المعروفة بتتعمل مرة واحدة عند الـ startup
-                // zero dictionary lookup overhead على الـ hot path
-                _knownCounters = new Dictionary<string, Counter<long>>
+                _knownCounters = new Dictionary<string, UpDownCounter<long>>
                 {
-                    ["connections.active"] = _meter.CreateCounter<long>("connections.active"),
-                    ["message.dispatched"] = _meter.CreateCounter<long>("message.dispatched"),
-                    ["message.decompressed"] = _meter.CreateCounter<long>("message.decompressed"),
-                    ["message.validation.errors"] = _meter.CreateCounter<long>("message.validation.errors"),
-                    ["message.processing.errors"] = _meter.CreateCounter<long>("message.processing.errors"),
-                    ["ratelimit.exceeded"] = _meter.CreateCounter<long>("ratelimit.exceeded"),
+                    ["connections.active"] = _meter.CreateUpDownCounter<long>("connections.active"),
+                    ["message.dispatched"] = _meter.CreateUpDownCounter<long>("message.dispatched"),
+                    ["message.decompressed"] = _meter.CreateUpDownCounter<long>("message.decompressed"),
+                    ["message.validation.errors"] = _meter.CreateUpDownCounter<long>("message.validation.errors"),
+                    ["message.processing.errors"] = _meter.CreateUpDownCounter<long>("message.processing.errors"),
+                    ["ratelimit.exceeded"] = _meter.CreateUpDownCounter<long>("ratelimit.exceeded"),
+
                 }.ToFrozenDictionary();
 
                 _knownHistograms = new Dictionary<string, Histogram<double>>
@@ -125,7 +124,8 @@ namespace Infrastructure.Metrics
 
             // ─── Gauge ───────────────────────────────────────────────────────────────
 
-            public void RecordGauge(string name, double value, params KeyValuePair<string, object?>[] tags)
+            public void RecordGauge(string name, double value,
+                params KeyValuePair<string, object?>[] tags)
             {
                 _gauges.AddOrUpdate(
                     key: name,
@@ -164,14 +164,14 @@ namespace Infrastructure.Metrics
 
             [System.Runtime.CompilerServices.MethodImpl(
                 System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-            private Counter<long> GetOrCreateCounter(string name)
+            private UpDownCounter<long> GetOrCreateCounter(string name)
             {
                 // ✅ FrozenDictionary lookup أول — أسرع path لأي metric معروف
                 if (_knownCounters.TryGetValue(name, out var known))
                     return known;
 
                 // Fallback للـ dynamic metrics
-                return _dynamicCounters.GetOrAdd(name, n => _meter.CreateCounter<long>(n));
+                return _dynamicCounters.GetOrAdd(name, n => _meter.CreateUpDownCounter<long>(n));
             }
 
             [System.Runtime.CompilerServices.MethodImpl(

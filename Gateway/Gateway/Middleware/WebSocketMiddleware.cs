@@ -18,41 +18,41 @@ namespace AppGateway.Middleware
 
         public async Task InvokeAsync(HttpContext context)
         {
-                if (context.Request.Path.StartsWithSegments("/ws"))
-                {
-                    if (!context.WebSockets.IsWebSocketRequest)
-                    {
-                        context.Response.StatusCode = 400;
-                        return;
-                    }
+            if (!context.Request.Path.StartsWithSegments("/ws"))
+            {
+                await _next(context);
+                return;
+            } 
+            // ✅ Layer 1 — WebSocket request check
+            if (!context.WebSockets.IsWebSocketRequest)
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                return;
+            }
+        
+            if (context.User?.Identity?.IsAuthenticated != true)
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
 
-                    // ✅ التحقق من Authentication أولاً
-                    if (context.User?.Identity?.IsAuthenticated != true)
-                    {
-                        context.Response.StatusCode = 401;
-                        return;
-                    }
+           
+            var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
 
-                    // ✅ التحقق من userId قبل AcceptWebSocketAsync
-                    var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                    if (string.IsNullOrWhiteSpace(userId))
-                    {
-                        context.Response.StatusCode = 401;
-                        return;
-                    }
+            var socket = await context.WebSockets.AcceptWebSocketAsync();
 
-                    // ✅ الآن نقبل الاتصال
-                    var socket = await context.WebSockets.AcceptWebSocketAsync();
+            await using var scope = _serviceProvider.CreateAsyncScope();
+            var gateway = scope.ServiceProvider
+                .GetRequiredService<IGatewayIngressHandler>();
 
-                    await using var scope = _serviceProvider.CreateAsyncScope();
-                    var gateway = scope.ServiceProvider.GetRequiredService<IGatewayIngressHandler>();
-                    await gateway.HandleAsync(userId, socket, context.RequestAborted);
-                }
-                else
-                {
-                    await _next(context);
-                }
-          
+            await gateway.HandleAsync(userId, socket, context.RequestAborted);
+           
         }
+       
     }
 }

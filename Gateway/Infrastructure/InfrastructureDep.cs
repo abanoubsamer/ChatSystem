@@ -12,13 +12,13 @@ using Application.Abstractions.Metrics;
 using Application.Abstractions.Pipeline;
 using Application.Abstractions.Processor;
 using Application.Abstractions.Publisher;
-using Application.Abstractions.Queue;
 using Application.Abstractions.RateLimiting;
 using Application.Handlers.Call;
 using Application.Handlers.Message;
 using Application.Handlers.Snapshots;
 using Application.Handlers.State;
 using Application.Handlers.Sync;
+using Infrastructure.Background;
 using Infrastructure.Compression;
 using Infrastructure.Connection.Implementation;
 using Infrastructure.Metrics;
@@ -27,12 +27,9 @@ using Infrastructure.Pipeline;
 using Infrastructure.Pipeline.Middlewares;
 using Infrastructure.Repositories.GenaricRepo;
 using Infrastructure.Services.Auth;
-using Infrastructure.Services.Background;
-using Infrastructure.Services.Broadcast;
 using Infrastructure.Services.Broadcast.Implementation;
 using Infrastructure.Services.Connection;
 using Infrastructure.Services.Publisher;
-
 using Infrastructure.WebSocketHandler.Dispatcher;
 using Infrastructure.WebSocketHandler.Engress.Consumers.Chat;
 using Infrastructure.WebSocketHandler.Engress.Consumers.Message;
@@ -40,9 +37,11 @@ using Infrastructure.WebSocketHandler.Engress.Story;
 using Infrastructure.WebSocketHandler.Ingress;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using MongoDB.Driver;
 using System.Text;
@@ -67,64 +66,95 @@ namespace Infrastructure
 
         }
 
-        public static IServiceCollection AddAuthentcationDep(this IServiceCollection services, IConfiguration configuration)
+        public static IServiceCollection AddAuthentcationDep(
+    this IServiceCollection services,
+    IConfiguration configuration)
         {
-
-            services.AddAuthentication(opt =>
-            {
-                opt.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-                opt.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-            }).AddJwtBearer(opt =>
-            {
-                opt.TokenValidationParameters = new TokenValidationParameters
+            services
+                .AddAuthentication(opt =>
                 {
-                    ValidateAudience = true,
-                    ValidateActor = true,
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-                    ValidAudience = configuration["JWT:Audience"],
-                    ValidIssuer = configuration["JWT:Issuer"],
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["JWT:SecretKey"]))
-                };
-
-                opt.Events = new JwtBearerEvents
+                    opt.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                    opt.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+                })
+                .AddJwtBearer(opt =>
                 {
-                    OnMessageReceived = context =>
+                    opt.TokenValidationParameters = new TokenValidationParameters
                     {
-                        // قراءة token من query string لو حابة
-                        var accessToken = context.Request.Query["token"];
-                        var path = context.HttpContext.Request.Path;
+                        ValidateAudience = true,
+                        ValidateIssuer = true,   // ✅ كان ValidateActor — غلط
+                        ValidateLifetime = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidAudience = configuration["JWT:Audience"],
+                        ValidIssuer = configuration["JWT:Issuer"],
+                        IssuerSigningKey = new SymmetricSecurityKey(
+                            Encoding.UTF8.GetBytes(configuration["JWT:SecretKey"]
+                                ?? throw new InvalidOperationException(
+                                    "JWT:SecretKey is not configured."))),
 
-                        if (!string.IsNullOrEmpty(accessToken)
-                                      )
-                            context.Token = accessToken;
+                        // ✅ Clock skew صغير — يمنع استخدام tokens منتهية بـ tolerance كبيرة
+                        ClockSkew = TimeSpan.FromSeconds(30),
+                    };
 
-                        return Task.CompletedTask;
-                    }
-                };
-                
+                    opt.Events = new JwtBearerEvents
+                    {
+                        // ✅ token من query string بس على /ws
+                        OnMessageReceived = context =>
+                        {
+                            // فقط WebSocket endpoint
+                            if (!context.HttpContext.Request.Path
+                                    .StartsWithSegments("/ws"))
+                                return Task.CompletedTask;
 
-            });
+                            // فقط لو الـ request فعلاً WebSocket upgrade
+                            if (!context.HttpContext.WebSockets.IsWebSocketRequest)
+                                return Task.CompletedTask;
 
-            services.Configure<SecurityStampValidatorOptions>(options =>
-            {
-                options.ValidationInterval = TimeSpan.Zero;
-            });
+                            var token = context.Request.Query["token"].FirstOrDefault();
+
+                            if (!string.IsNullOrWhiteSpace(token))
+                                context.Token = token;
+
+                            return Task.CompletedTask;
+                        },
+
+                        // ✅ Log auth failures بدون كشف تفاصيل للـ client
+                        OnAuthenticationFailed = context =>
+                        {
+                            var logger = context.HttpContext.RequestServices
+                                .GetRequiredService<ILogger<JwtBearerEvents>>();
+
+                            logger.LogWarning(
+                                "JWT authentication failed | path={Path} | error={Error}",
+                                context.HttpContext.Request.Path,
+                                context.Exception.GetType().Name); // مش الـ message كاملة
+
+                            return Task.CompletedTask;
+                        },
+
+                        // ✅ منع تفاصيل الـ error من توصل للـ client
+                        OnChallenge = context =>
+                        {
+                            context.HandleResponse();
+                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                            context.Response.ContentType = "application/json";
+
+                            return context.Response.WriteAsync(
+                                """{"error":"unauthorized","message":"Authentication required"}""");
+                        }
+                    };
+                });
 
             return services;
-
         }
-
+        
 
         public static IServiceCollection AddMassRabbitMqDep(this IServiceCollection services, IConfiguration configuration)
         {
             services.AddMassTransit(cfg =>
             {
                 cfg.AddConsumer<BroadcastMessageConsumer>();
-
                 cfg.AddConsumer<AckStoreConsumer>();
                 cfg.AddConsumer<NewChatConsumer>();
-
                 cfg.AddConsumer<AckDeliveredConsumer>();
                 cfg.AddConsumer<SeenAckMessageConsumer>();
                 cfg.AddConsumer<StoryBroadcastConsumer>();
@@ -179,7 +209,6 @@ namespace Infrastructure
 
             // Generic Repositories and Queue Services → Singleton
             services.AddSingleton(typeof(IGenaricRepository<>), typeof(GenaricRepository<>));
-            services.AddSingleton(typeof(IQueue<>), typeof(QueueService<>));
 
             // Publisher → Singleton ✅
             services.AddSingleton<IMessagePublisher, RabbitMqPublisher>();
@@ -241,6 +270,7 @@ namespace Infrastructure
             //    GatewayIngressHandler uses IConnectionServices directly.
             services.AddScoped<IGatewayIngressHandler, GatewayIngressHandler>();
 
+            services.AddHostedService<DeadSocketCleanupService>();
 
 
             return services;

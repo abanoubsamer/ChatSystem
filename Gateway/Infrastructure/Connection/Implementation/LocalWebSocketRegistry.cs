@@ -18,93 +18,103 @@ namespace Infrastructure.Connection.Implementation
     {
         // استخدام ConcurrentDictionary لكل connection
         private readonly ConcurrentDictionary<string, ConnectionEntry> _connections = new();
-
-        // استخدام ImmutableHashSet بدل HashSet لتجنب ال locks
         private readonly ConcurrentDictionary<string, ImmutableHashSet<string>> _userIndex = new();
-
         private readonly ILogger<LocalWebSocketRegistry> _logger;
-        private readonly Timer _cleanupTimer;
 
         public LocalWebSocketRegistry(ILogger<LocalWebSocketRegistry> logger)
         {
             _logger = logger;
-            _cleanupTimer = new Timer(_ => PurgeDeadConnections(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
 
         public string Register(string userId, WebSocket socket)
         {
+            ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+            ArgumentNullException.ThrowIfNull(socket);
+
             var connectionId = Guid.NewGuid().ToString("N");
             var entry = new ConnectionEntry(userId, socket, null);
 
             _connections[connectionId] = entry;
             AddToUserIndex(userId, connectionId);
 
-            _logger.LogDebug("Registered socket: User={UserId}, Connection={ConnectionId}", userId, connectionId);
+            _logger.LogDebug(
+                "Registered | userId={UserId} | connectionId={ConnectionId}",
+                userId, connectionId);
+
             return connectionId;
         }
 
         public string Register(string userId, MessageContext context)
         {
+            ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+            ArgumentNullException.ThrowIfNull(context);
+
             var connectionId = context.ConnectionId;
             var entry = new ConnectionEntry(userId, context.Socket, context);
 
             _connections[connectionId] = entry;
             AddToUserIndex(userId, connectionId);
 
-            _logger.LogDebug("Registered context: User={UserId}, Connection={ConnectionId}", userId, connectionId);
+            _logger.LogDebug(
+                "Registered context | userId={UserId} | connectionId={ConnectionId}",
+                userId, connectionId);
+
             return connectionId;
         }
 
-        // helper method بدون locks
-        private void AddToUserIndex(string userId, string connectionId)
-        {
-            _userIndex.AddOrUpdate(userId,
-                _ => ImmutableHashSet.Create(connectionId),
-                (_, set) => set.Add(connectionId));
-        }
+     
 
         public void Unregister(string connectionId)
         {
             if (!_connections.TryRemove(connectionId, out var entry))
                 return;
 
-            // ImmutableHashSet بيخليه thread-safe بدون locks
-            _userIndex.AddOrUpdate(entry.UserId,
+            // ✅ ImmutableHashSet atomic swap — thread-safe بدون lock
+            _userIndex.AddOrUpdate(
+                entry.UserId,
                 _ => ImmutableHashSet<string>.Empty,
-                (_, set) => set.Remove(connectionId));
+                (_, existing) => existing.Remove(connectionId));
 
-            _logger.LogDebug("Unregistered: User={UserId}, Connection={ConnectionId}", entry.UserId, connectionId);
+            _logger.LogDebug(
+                "Unregistered | userId={UserId} | connectionId={ConnectionId}",
+                entry.UserId, connectionId);
         }
-
+       
+        
+        // ─── Lookup ───────────────────────────────────────────────────────────────
         public WebSocket? GetSocket(string connectionId) =>
-            _connections.TryGetValue(connectionId, out var entry) ? entry.Socket : null;
+        _connections.TryGetValue(connectionId, out var entry)
+            ? entry.Socket
+            : null;
 
         public MessageContext? GetContext(string connectionId) =>
-            _connections.TryGetValue(connectionId, out var entry) ? entry.Context : null;
+         _connections.TryGetValue(connectionId, out var entry)
+             ? entry.Context
+             : null;
 
-        // استخدام ArrayPool لتقليل allocations
         public IReadOnlyList<WebSocket> GetUserSockets(string userId)
         {
-            if (string.IsNullOrWhiteSpace(userId) || !_userIndex.TryGetValue(userId, out var connIds))
+            if (string.IsNullOrWhiteSpace(userId) ||
+                !_userIndex.TryGetValue(userId, out var connIds))
                 return Array.Empty<WebSocket>();
 
-       
             var result = new List<WebSocket>(connIds.Count);
 
             foreach (var id in connIds)
             {
                 if (_connections.TryGetValue(id, out var entry) &&
                     entry.Socket.State == WebSocketState.Open)
-                {
                     result.Add(entry.Socket);
-                }
             }
 
             return result;
         }
+
+
         public IReadOnlyList<MessageContext> GetUserContexts(string userId)
         {
-            if (string.IsNullOrWhiteSpace(userId) || !_userIndex.TryGetValue(userId, out var connIds))
+            if (string.IsNullOrWhiteSpace(userId) ||
+                !_userIndex.TryGetValue(userId, out var connIds))
                 return Array.Empty<MessageContext>();
 
             var result = new List<MessageContext>(connIds.Count);
@@ -112,64 +122,84 @@ namespace Infrastructure.Connection.Implementation
             foreach (var id in connIds)
             {
                 if (_connections.TryGetValue(id, out var entry) &&
-                    entry.Context != null &&
+                    entry.Context is not null &&
                     entry.Socket.State == WebSocketState.Open)
-                {
                     result.Add(entry.Context);
-                }
             }
 
             return result;
         }
 
         public bool HasLocalConnections(string userId) =>
-            _userIndex.TryGetValue(userId, out var conns) && !conns.IsEmpty;
+         _userIndex.TryGetValue(userId, out var conns) && !conns.IsEmpty;
 
         public int GetConnectionCount(string userId) =>
             _userIndex.TryGetValue(userId, out var conns) ? conns.Count : 0;
 
+
         public void PurgeDeadConnections()
         {
-            var deadConnections = new List<string>();
+            var dead = new List<string>();
 
-            // Parallel processing للconnections الكتيرة
-            Parallel.ForEach(_connections, kvp =>
+            // ✅ ConcurrentDictionary enumeration — آمن بدون lock
+            foreach (var (connId, entry) in _connections)
             {
-                if (kvp.Value.Socket.State != WebSocketState.Open)
-                {
-                    lock (deadConnections)
-                    {
-                        deadConnections.Add(kvp.Key);
-                    }
-                }
-            });
+                if (entry.Socket.State != WebSocketState.Open)
+                    dead.Add(connId);
+            }
 
-            foreach (var connId in deadConnections)
-            {
+            if (dead.Count == 0) return;
+
+            foreach (var connId in dead)
                 Unregister(connId);
-            }
 
-            if (deadConnections.Count > 0)
-            {
-                _logger.LogInformation("Purged {Count} dead connections", deadConnections.Count);
-            }
+            _logger.LogInformation(
+                "Purged {Count} dead connections | remaining={Active}",
+                dead.Count,
+                _connections.Count);
         }
+
+
+        // ─── Stats ────────────────────────────────────────────────────────────────
+
+        /// <summary>للـ health checks والـ metrics.</summary>
+        public RegistryStats GetStats() => new(
+            TotalConnections: _connections.Count,
+            UniqueUsers: _userIndex.Count(kvp => !kvp.Value.IsEmpty));
+
+        // ─── Helpers ──────────────────────────────────────────────────────────────
+
+        private void AddToUserIndex(string userId, string connectionId)
+        {
+            _userIndex.AddOrUpdate(
+                userId,
+                _ => ImmutableHashSet.Create(connectionId),
+                (_, existing) => existing.Add(connectionId));
+        }
+
+        // ─── Dispose ──────────────────────────────────────────────────────────────
 
         public void Dispose()
         {
-            _cleanupTimer?.Dispose();
-
-            foreach (var conn in _connections.Values)
+            foreach (var entry in _connections.Values)
             {
-                conn.Socket.Dispose();
+                try { entry.Socket.Dispose(); }
+                catch { /* best effort */ }
             }
+
             _connections.Clear();
             _userIndex.Clear();
         }
+
+        // ─── Inner Types ──────────────────────────────────────────────────────────
 
         private readonly record struct ConnectionEntry(
             string UserId,
             WebSocket Socket,
             MessageContext? Context);
+
+        public readonly record struct RegistryStats(
+            int TotalConnections,
+            int UniqueUsers);
     }
 }

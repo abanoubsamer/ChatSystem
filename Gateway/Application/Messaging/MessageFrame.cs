@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,54 +8,69 @@ using System.Threading.Tasks;
 
 namespace Application.Messaging
 {
-    public readonly struct MessageFrame
+    public readonly struct MessageFrame : IDisposable
     {
-        public const int HeaderLength = 5;
+        public const int HeaderLength = 5; // 4 bytes length + 1 byte type
+
         public FrameType Type { get; }
         public ReadOnlyMemory<byte> Payload { get; }
+
+        // ✅ IMemoryOwner — الـ memory رجعة لـ ArrayPool لما يتعمل Dispose
+        private readonly IMemoryOwner<byte>? _payloadOwner;
+
         public int TotalLength => HeaderLength + Payload.Length;
 
-        public MessageFrame(FrameType type, ReadOnlyMemory<byte> payload)
+        public MessageFrame(
+            FrameType type,
+            ReadOnlyMemory<byte> payload,
+            IMemoryOwner<byte>? payloadOwner)
         {
             Type = type;
             Payload = payload;
+            _payloadOwner = payloadOwner;
         }
+
+        /// <summary>
+        /// ✅ بترجع الـ memory للـ ArrayPool —
+        ///    بيتستدعى بعد ما الـ handler يخلص من الـ Payload.
+        /// </summary>
+        public void Dispose() => _payloadOwner?.Dispose();
 
         public byte[] ToByteArray()
         {
-            var buffer = new byte[HeaderLength + Payload.Length];
+            var buffer = new byte[TotalLength];
             var span = buffer.AsSpan();
 
-            // اكتب الطول (4 بايت)
             BinaryPrimitives.WriteInt32BigEndian(span, Payload.Length);
-
-            // اكتب النوع (1 بايت)
             span[4] = (byte)Type;
-
-            // اكتب البيانات
-            Payload.Span.CopyTo(span.Slice(5));
+            Payload.Span.CopyTo(span.Slice(HeaderLength));
 
             return buffer;
         }
+    }
+    internal struct  FrameParserState
+    {
+        public bool HeaderRead { get; set; }
+        public int PayloadLength { get; set; }
+        public FrameType FrameType { get; set; }
+        public IMemoryOwner<byte>? PayloadOwner { get; set; }
+        public int BytesCopied { get; set; }
 
-        public static MessageFrame FromBytes(ReadOnlySpan<byte> data)
+        public void Reset()
         {
-            if (data.Length < HeaderLength)
-                throw new ArgumentException("Incomplete frame");
+            HeaderRead = false;
+            PayloadLength = 0;
+            BytesCopied = 0;
+            PayloadOwner = null; // Owner انتقل للـ MessageFrame
+        }
 
-            var length = BinaryPrimitives.ReadInt32BigEndian(data);
-            var type = (FrameType)data[4];
-
-            if (data.Length < HeaderLength + length)
-                throw new ArgumentException("Incomplete payload");
-
-            return new MessageFrame(
-                type,
-                data.Slice(HeaderLength, length).ToArray()
-            );
+        public void Dispose()
+        {
+            // لو في partial frame معلّقة — نرجع الـ memory
+            PayloadOwner?.Dispose();
+            PayloadOwner = null;
         }
     }
-
     public enum FrameType : byte
     {
         Message = 0x01,      // رسالة عادية

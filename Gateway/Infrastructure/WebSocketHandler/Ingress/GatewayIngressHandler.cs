@@ -103,7 +103,7 @@ namespace Infrastructure.WebSocketHandler.Ingress
                         break;
 
                     case FrameType.Ping:
-                        await context.SendPongAsync(ct);
+                         context.SendPong();
                         break;
 
                     case FrameType.Pong:
