@@ -1,6 +1,6 @@
 # 🌐 Gateway — Real-Time WebSocket Gateway with Microsoft Orleans
 
-> **Production-grade technical documentation** — generated from full source analysis.  
+> **Production-grade technical documentation** — updated after v2 source analysis.  
 > Intended for: Senior Engineers · Tech Leads · Reviewers · Production Handover
 
 ---
@@ -15,9 +15,10 @@
 6. [📖 Data Flow Explanation](#-data-flow-explanation)
 7. [🧩 Orleans Deep Dive](#-orleans-deep-dive)
 8. [📊 System Diagrams](#-system-diagrams)
-9. [⚠️ Known Issues](#️-known-issues)
-10. [🚀 Recommendations & Improvements](#-recommendations--improvements)
-11. [📈 Final Evaluation](#-final-evaluation)
+9. [✅ Resolved Issues (v2)](#-resolved-issues-v2)
+10. [⚠️ Remaining Known Issues](#️-remaining-known-issues)
+11. [🚀 Recommendations & Improvements](#-recommendations--improvements)
+12. [📈 Final Evaluation](#-final-evaluation)
 
 ---
 
@@ -31,8 +32,8 @@ This project is a **real-time bidirectional WebSocket Gateway** built on **.NET 
 
 | Responsibility | Mechanism |
 |---|---|
-| Accept & authenticate WebSocket connections | JWT Bearer middleware + WebSocketMiddleware |
-| Binary frame framing (read/write) | Custom binary protocol over `System.IO.Pipelines` |
+| Accept & authenticate WebSocket connections | JWT Bearer middleware + `WebSocketMiddleware` (path-scoped) |
+| Binary frame framing (read/write) | Custom binary protocol — `FrameReader`/`FrameWriter` both fully `System.IO.Pipelines` |
 | Per-connection message pipeline | Chain-of-responsibility: Metrics → RateLimit → Decompress → Dispatch |
 | Route inbound messages to handlers | `MethodDispatcher` via `FrozenDictionary<string, IMethodHandler>` |
 | Publish domain events to backend | MassTransit → RabbitMQ |
@@ -40,34 +41,35 @@ This project is a **real-time bidirectional WebSocket Gateway** built on **.NET 
 | Track online/offline presence | Orleans `UserGrain` (persistent state) |
 | Manage group membership | Orleans `RoomGrain` (persistent state + 30 s presence cache) |
 | Enforce per-user rate limits | Orleans `RateLimitGrain` (token bucket, distributed) |
-| Manage WebRTC call sessions | Orleans `CallSessionGrain` (ring timer, idempotent lifecycle) |
+| Manage WebRTC call sessions | Orleans `CallSessionGrain` (ring timer, idempotent lifecycle, rollback support) |
 | Chat-to-active-call index | Orleans `ActiveChatSessionGrain` (self-healing liveness check) |
 | Startup data migration | Orleans `MigrationFlagGrain` + `RoomGrainMigrationService` |
+| Dead-socket cleanup | `DeadSocketCleanupService` — single `BackgroundService` source |
 
-### High-Level Architecture
+### High-Level Architecture (v2)
 
 ```
 Clients
   │  (wss://)
   ▼
-WebSocketMiddleware  ←  JWT Auth (ASP.NET Core)
+WebSocketMiddleware  ←  JWT Auth (path-restricted to /ws, ValidateIssuer, ClockSkew=30s)
   │
 GatewayIngressHandler   (Scoped per connection)
-  │  System.IO.Pipelines
-  ├─ FrameReader (Pipe-based, ArrayPool)
-  └─ FrameWriter (Channel<byte[]>, bounded, drain loop)
+  │
+  ├─ FrameReader  (System.IO.Pipelines — zero-copy pump, IMemoryOwner payload, 1MB limit)
+  └─ FrameWriter  (System.IO.Pipelines — Pipe-based, GetSpan/Advance header, auto-batching)
        │
        MessagePipeline  (Singleton middleware chain)
-         1. MetricsMiddleware       (OpenTelemetry ActivitySource)
-         2. RateLimitMiddleware     (→ RateLimitGrain, Orleans)
+         1. MetricsMiddleware       (OpenTelemetry — SetTag direct, zero array alloc)
+         2. RateLimitMiddleware     (→ RateLimitGrain, Orleans distributed token bucket)
          3. DecompressionMiddleware (GZip magic-byte detection)
          4. DispatchMiddleware      (MessagePack deserialize → MethodDispatcher)
               │
-              MethodDispatcher  (FrozenDictionary lookup)
+              MethodDispatcher  (FrozenDictionary lookup, case-normalized at startup)
                 │
-                IMethodHandler implementations
+                IMethodHandler implementations  (all Singleton)
                   ├─ Message handlers (NewMessage, Ack, Seen, Sync)
-                  ├─ Call handlers    (Offer, Answer, IceCandidate, Join/Leave, etc.)
+                  ├─ Call handlers    (Offer validated+rollback, Answer, ICE, Join/Leave…)
                   └─ State handlers   (UserState, GroupState)
                        │
                        IMessagePublisher → RabbitMQ (MassTransit)
@@ -82,12 +84,15 @@ RabbitMQ (Egress direction)
   └─ StoryBroadcastConsumer    → story fanout
 
 Orleans Cluster (Virtual Actors)
-  ├─ UserGrain      (presence, connection tracking)
-  ├─ RoomGrain      (group membership, presence cache)
-  ├─ RateLimitGrain (token-bucket rate limiter)
-  ├─ CallSessionGrain (WebRTC session, ring timer)
-  ├─ ActiveChatSessionGrain (chat→session index, self-healing)
-  └─ MigrationFlagGrain (startup idempotency)
+  ├─ UserGrain           (presence, connection tracking, persistent)
+  ├─ RoomGrain           (group membership, 30s presence cache, persistent)
+  ├─ RateLimitGrain      (token-bucket, distributed, in-memory only)
+  ├─ CallSessionGrain    (WebRTC session, ring timer, persistent + rollback support)
+  ├─ ActiveChatSessionGrain (chat→session index, self-healing liveness)
+  └─ MigrationFlagGrain  (startup idempotency)
+
+Infrastructure / Background
+  └─ DeadSocketCleanupService  (single BackgroundService, PeriodicTimer 30s)
 
 Storage
   ├─ MongoDB (domain data + Orleans grain persistence)
@@ -111,26 +116,34 @@ Storage
 | Multiple connections per user | ✅ | `LocalWebSocketRegistry` user index (`ImmutableHashSet`) |
 | Connection lifecycle (connect/disconnect) | ✅ | `ConnectionServices` → `UserGrain` |
 | Connection ID generation | ✅ | `MessageContext.ConnectionId` = `Guid.NewGuid()` |
-| Graceful close on frame type `Close` | ✅ | `GatewayIngressHandler.HandleFrameAsync` |
-| Dead-socket periodic purge | ✅ | `LocalWebSocketRegistry` internal timer (30 s) + `DeadSocketCleanupService` (60 s) |
-| Connection timeout / idle disconnect | ❌ | `NeedsHeartbeat()` exists on `MessageContext` but is never called |
+| Graceful close on frame type `Close` | ✅ | `GatewayIngressHandler.HandleFrameAsync` + `CloseAsync` idempotent |
+| Dead-socket periodic purge | ✅ | `DeadSocketCleanupService` (single source, 30s PeriodicTimer) — **v2 fix** |
+| `MessageContext` encapsulation | ✅ | `LastActivityAt` private set, `IncrementMessagesSent` private — **v2 fix** |
+| `TimeProvider` injectable | ✅ | `NeedsHeartbeat()` and `ConnectedAt` via `TimeProvider.System` — **v2 fix** |
+| Connection timeout / idle disconnect | ❌ | `NeedsHeartbeat()` exists but is never called |
 | Client reconnection / session resume | ❌ | Not implemented |
-| Heartbeat/keepalive scheduler | ❌ | Ping frame handled, but no periodic sender |
+| Heartbeat/keepalive scheduler | ❌ | `SendPing()` void exists, but no periodic sender |
 
 ### Messaging System
 
 | Feature | Status | Implementation |
 |---|---|---|
 | Binary protocol (MessagePack) | ✅ | `MessageSerializer`, `MessageEnvelope` |
-| Custom binary framing (5-byte header) | ✅ | `MessageFrame` (4-byte length + 1-byte type) |
+| Custom binary framing (5-byte header) | ✅ | `MessageFrame` (`IDisposable` + `IMemoryOwner`) — **v2 fix** |
 | Frame types: Message, Response, Ping, Pong, Close, Error | ✅ | `FrameType` enum |
-| Backpressure-safe async write queue | ✅ | `FrameWriter` — bounded `Channel<byte[]>` (256), drain loop |
+| Pipe-based write queue with built-in backpressure | ✅ | `FrameWriter` — `System.IO.Pipelines`, `PauseThreshold` 64 KB — **v2 fix** |
+| Automatic frame batching | ✅ | `FrameWriter.SendBufferAsync` multi-segment send — **v2 new** |
+| Zero-copy frame header write | ✅ | `GetSpan/Advance` directly into Pipe memory — **v2 new** |
+| Max frame size enforcement | ✅ | `FrameReader` — 1 MB hard limit — **v2 fix** |
+| Zero-copy frame reading | ✅ | `FrameReader` — `IMemoryOwner<byte>`, single copy — **v2 fix** |
 | GZip decompression (magic-byte detection) | ✅ | `GzipMessageCompressor.IsCompressed` |
 | Method-based dispatch | ✅ | `MethodDispatcher` with `FrozenDictionary` |
 | Fanout to user (all connections) | ✅ | `OutgoingMessageService.SendToUserAsync` |
 | Fanout to room (all members) | ✅ | `OutgoingMessageService.SendToRoomAsync` |
 | Fanout with exclusion (sender excluded) | ✅ | `SendToRoomAsync(excludeUserId, ...)` |
 | Fanout to a list of users | ✅ | `SendToUsersAsync` with dedup `HashSet` |
+| Send API returns `ValueTask<bool>` | ✅ | Counter incremented only after success — **v2 fix** |
+| `SendPing/SendPong` fire-and-forget | ✅ | `void` + `WritePingNoWait/WritePongNoWait` — **v2 fix** |
 | Offline message queue | ❌ | Messages dropped if user has no active connection |
 | Message persistence in gateway | ❌ | Gateway fires-and-forgets to backend; no local store |
 
@@ -139,11 +152,15 @@ Storage
 | Feature | Status | Implementation |
 |---|---|---|
 | JWT Bearer authentication | ✅ | ASP.NET Core `AddJwtBearer` |
-| Token from query string (`?token=`) | ✅ | `OnMessageReceived` event |
+| Token from query string (`?token=`) | ✅ | `OnMessageReceived` event — now path-restricted — **v2 fix** |
+| Query-string token restricted to `/ws` | ✅ | `StartsWithSegments("/ws")` + `IsWebSocketRequest` check — **v2 fix** |
+| `ValidateIssuer` (was `ValidateActor`) | ✅ | Correct validation flag — **v2 fix** |
+| `ClockSkew` reduced to 30 seconds | ✅ | Prevents token replay window — **v2 fix** |
+| Missing `SecretKey` throws at startup | ✅ | `?? throw new InvalidOperationException(...)` — **v2 fix** |
+| Auth failure — no details leaked to client | ✅ | `OnAuthenticationFailed` logs type only, `OnChallenge` returns generic 401 — **v2 fix** |
 | Auth validation before WebSocket upgrade | ✅ | `context.User.Identity.IsAuthenticated` checked first |
-| UserId extracted from claims | ✅ | `ClaimTypes.NameIdentifier` |
 | Token revocation / blacklist | ❌ | Not implemented |
-| Path restriction on query-string token | ❌ | Token accepted from query string on all paths, not just `/ws` |
+| `Origin` header validation (CSWSH) | ❌ | Not implemented |
 | Refresh token / re-authentication on socket | ❌ | Not implemented |
 
 ### Session Handling (WebRTC Calls)
@@ -151,14 +168,17 @@ Storage
 | Feature | Status | Implementation |
 |---|---|---|
 | Direct call offer/answer/ICE | ✅ | `OfferMethodHandler`, `AnswerMethodHandler`, `IceCandidateMethodHandler` |
+| `OfferMethodHandler` input validation | ✅ | `TargetUserId` required, self-call prevented — **v2 fix** |
+| `OfferMethodHandler` awaited publish | ✅ | `await` instead of `_ =`, no fire-and-forget — **v2 fix** |
+| Rollback on publish failure | ✅ | `RollbackSessionAsync` → `grain.EndAsync("publish_failed")` — **v2 new** |
+| Caller confirmation `offer_sent` | ✅ | Response frame sent after successful offer — **v2 new** |
 | Group call creation and join | ✅ | `CreateGroupCallHandler`, `JoinCallMethodHandler` |
 | Leave call | ✅ | `LeaveCallHandler` |
 | Media state (mute/unmute) | ✅ | `MediaStateHandler` |
-| 30-second ring timeout (no-answer end) | ✅ | `CallSessionGrain` → `RegisterGrainTimer` |
-| Distributed atomic session create (no race condition) | ✅ | Grain single-threaded guarantee |
+| 30-second ring timeout | ✅ | `CallSessionGrain` → `RegisterGrainTimer` |
+| Distributed atomic session create | ✅ | Grain single-threaded guarantee |
 | Session persistence across restarts | ✅ | `IPersistentState<CallSessionState>` → MongoDB |
 | Self-healing chat→session index | ✅ | `ActiveChatSessionGrain.GetSessionAsync()` liveness check |
-| Group signal relay | ✅ | `GroupSignalMethodHandler` |
 
 ### Scaling / Distribution
 
@@ -167,12 +187,12 @@ Storage
 | Orleans Virtual Actor clustering | ✅ | Orleans 8.2.0 with MongoDB grain storage |
 | Distributed rate limiting | ✅ | `RateLimitGrain` — one grain = one bucket across all silos |
 | Distributed presence | ✅ | `UserGrain` per user, `RoomGrain` per group |
-| Local socket registry (per-silo) | ✅ | `LocalWebSocketRegistry` (ConcurrentDictionary) |
+| Local socket registry (per-silo) | ✅ | `LocalWebSocketRegistry` (ConcurrentDictionary + ImmutableHashSet) |
 | Cross-silo WebSocket fanout | ❌ | `LocalWebSocketRegistry` is silo-local; users on other silos are missed |
 | Multi-node Orleans clustering | ❌ | `UseLocalhostClustering()` — single-silo only |
 | Orleans Streams (cross-silo events) | ❌ | Acknowledged in `CallSessionGrain` as "Phase 5" future work |
 | Health check endpoints | ❌ | Not configured |
-| Horizontal scale readiness | ⚠️ | Architecture supports it, but localhost clustering blocks it |
+| Horizontal scale readiness | ⚠️ | Architecture supports it, localhost clustering blocks it |
 
 ---
 
@@ -186,134 +206,150 @@ Storage
 Domain  ←  Application  ←  Infrastructure  ←  Gateway (Host)
 ```
 
-- **Domain** (`Domain.csproj`): Pure POCO models (`Message`, `Chat`, `CallSession`, `AppUser`, etc.). No framework dependencies.
-- **Application** (`Application.csproj`): Abstractions (interfaces), DTOs, pipeline contracts, method handler base class. Depends on Domain + Orleans abstractions + MessagePack.
-- **Infrastructure** (`Infrastructure.csproj`): All concrete implementations — grains, middleware, services, registry, compressor, metrics, consumers, publishers.
+- **Domain** (`Domain.csproj`): Pure POCO models (`Message`, `Chat`, `CallSession`, etc.). Zero framework dependencies.
+- **Application** (`Application.csproj`): Abstractions, DTOs, pipeline contracts, handler base class, and all messaging primitives (`FrameReader`, `FrameWriter`, `MessageContext`, `MessageFrame`).
+- **Infrastructure** (`Infrastructure.csproj`): All concrete implementations — grains, middleware, services, registry, compressor, metrics, consumers, publishers, background services.
 - **Gateway / AppGateway** (`AppGateway.csproj`): Host process — `Program.cs`, Orleans silo setup, `WebSocketMiddleware`, startup migration service.
 
-### Component Analysis
+### Component Analysis (v2)
 
-#### WebSocket Middleware (`WebSocketMiddleware`)
+#### `WebSocketMiddleware` (v2 improved)
 
-Correctly gates at the HTTP layer before accepting the WebSocket upgrade. Checks `IsAuthenticated` and extracts `UserId` from claims prior to calling `AcceptWebSocketAsync`. This prevents unauthorized connections from consuming socket resources.
+Path check is now the **first** guard — non-`/ws` paths pass through immediately to `_next` without any other work. Auth check and `UserId` extraction happen before `AcceptWebSocketAsync`.
 
-**Issue:** Creates a new DI scope per connection (`CreateAsyncScope()`), which is correct. However, the scope lifetime is scoped to the `HandleAsync` call, which is appropriate.
+#### `FrameReader` (v2 — fully rewritten)
 
-#### Binary Protocol (`FrameReader` / `FrameWriter`)
+**v1:** `ArrayPool.Rent` as intermediate buffer, then `.ToArray()` per frame = 3 copies.
 
-**FrameReader** uses `System.IO.Pipelines` for zero-copy reading from the socket. A background `Task` pumps bytes from the socket into the `Pipe.Writer`, while `ReadFramesAsync` (an `IAsyncEnumerable`) reads from `Pipe.Reader`. `ArrayPool<byte>.Shared` is used to avoid per-frame allocations for the receive buffer.
+**v2:** Pure `System.IO.Pipelines`. Socket pump calls `writer.GetMemory(4096)` — receives directly into Pipe memory. `TryReadFrame` uses a `SequenceReader<byte>` on the stack. Payload accumulated into `IMemoryOwner<byte>` rented once from `MemoryPool<byte>.Shared`. `MessageFrame` is `IDisposable` — handler returns memory to pool via `using(frame)`. **Total: 1 copy per frame.** Max frame size (1 MB) prevents memory exhaustion. Single `CancellationTokenSource`. `FrameParserState` is a plain `struct` (C# 12 compatible). Flush only on `EndOfMessage`.
 
-**FrameWriter** uses a bounded `Channel<ReadOnlyMemory<byte>>` (capacity 256) with `SingleReader = true`. A background drain loop is the exclusive sender on the socket, ensuring no concurrent `SendAsync` calls. `BoundedChannelFullMode.DropWrite` silently drops frames when the queue is full — **this is a silent data loss risk** (see Known Issues).
+#### `FrameWriter` (v2 — fully rewritten)
 
-**Frame format:**
-```
-[  4 bytes  ][ 1 byte  ][ N bytes ]
-  Payload Len  FrameType   Payload
-```
+**v1:** `Channel<byte[]>` bounded to 256, `DropWrite` — silent frame loss.
 
-#### Message Pipeline (`MessagePipeline`)
+**v2:** `System.IO.Pipelines` Pipe with `PauseWriterThreshold=64KB` / `ResumeWriterThreshold=32KB` (same values as Kestrel). `WriteFrameHeader` calls `_pipe.Writer.GetSpan(5)` + `Advance(5)` — header written directly into Pipe memory, zero allocation. `WritePingNoWait/WritePongNoWait` write without `FlushAsync` — coalesced into next batch automatically. `DrainAsync` reads `ReadOnlySequence<byte>` and sends segments with correct `endOfMessage` flag, achieving automatic batching. This is the same pattern used by `Microsoft.AspNetCore.SignalR` internally.
 
-Implements a composable middleware chain using `Aggregate` to build a nested delegate. Middleware ordering is enforced by DI registration order in `InfrastructureDep.cs`:
+#### `MessageContext` (v2 — significantly hardened)
 
-```
-MetricsMiddleware → RateLimitMiddleware → DecompressionMiddleware → DispatchMiddleware
-```
+`sealed` class. `TimeProvider` injected for testable time. `LastActivityAt` is `private set`. `IncrementMessagesSent` is `private` — called only from `SendCoreAsync` after confirmed success. `Items` is lazy `Dictionary<string,object>` (not always-allocated `ConcurrentDictionary` — per-connection single-threaded access). `CloseAsync` is idempotent. `ConnectionDuration` computed property added. All send methods return `ValueTask<bool>`.
 
-This is a clean design. The chain is built once at startup (Singleton) and reused across all connections, which is correct since `MessageContext` (the per-connection state) is passed at execution time.
+#### Metrics — `OpenTelemetryMetricsCollector` (v2 — hot path fixed)
 
-#### Method Dispatcher (`MethodDispatcher`)
+**v1:** `_meter.CreateCounter(name)` on every metric call — new registration per call.
 
-Uses `FrozenDictionary<string, IMethodHandler>` built at startup — the ideal collection for read-heavy, write-once lookup. Keys are normalized to lowercase at registration and lookup, avoiding per-call allocations from `OrdinalIgnoreCase` comparison.
+**v2:** `FrozenDictionary<string, UpDownCounter<long>>` for all known metrics pre-created at constructor. `ConcurrentDictionary` fallback for dynamic metrics. Typed overloads (0, 1, 2 tag parameters) with `TagList` (stack-allocated struct) — **zero heap allocation per metric call**. `NoOpDisposable.Instance` static singleton for `BeginScope`. `Volatile.Read/Write` for gauge entries.
 
-**Registered methods:** `NewMessage`, `MessageReceivedAck`, `MessageSeenAck`, `ReceivedAckBatch`, `ReceivedSnapAckBatch`, `SyncUserAck`, `UserState`, `GroupState`, `offer`, `answer`, `IceCandidate`, `JoinCall`, `GroupSignal`, `LeaveCall`, `MediaState`, `CreateGroupCall` (16 handlers total).
+#### `LocalWebSocketRegistry` (v2 — purge fixed)
 
-#### Connection Services Architecture
+`PurgeDeadConnections` previously used `Parallel.ForEach` with `lock(List)` inside — self-defeating. v2: simple `foreach` over `ConcurrentDictionary` (snapshot-safe by contract) then sequential `Unregister`. Internal `Timer` removed — `DeadSocketCleanupService` is the single source. Null guards via `ArgumentNullException.ThrowIfNull`. `RegistryStats` record struct added for health checks.
 
-A two-layer design:
+#### `OfferMethodHandler` (v2 — correctness fixed)
 
-- **`LocalWebSocketRegistry`** (Singleton, per-silo): Maps `connectionId → ConnectionEntry` and `userId → ImmutableHashSet<connectionId>`. Thread-safe via `ConcurrentDictionary` + `ImmutableHashSet` atomic swap. This is the fast, local path.
-- **`ConnectionServices`** (Singleton): Façade that routes socket operations to `LocalWebSocketRegistry` and group/presence operations to Orleans grains via `IGrainFactory`.
+**v1:** `_ = _publisher.PublishAsync(...)` — fire-and-forget with unobserved exceptions. Session created but backend unaware if publish failed.
 
-### Anti-Patterns Detected
+**v2:** Full `await` on publish. Input validation before any grain calls. `RollbackSessionAsync` → `grain.EndAsync("publish_failed")` if publish throws. `SendResponseAsync("offer_sent")` confirmation to caller. Target-offline handled as warning — ring timer handles expiry naturally.
+
+### Removed Dead Code (v2)
+
+- `WebSocketConnectionManager` — removed (was never used)
+- `HandlerRegistration` — removed (`Activator.CreateInstance`-based, bypassed DI)
+- `ConnectionServicesExtensions` — removed (consolidated into `InfrastructureDep`)
+- Duplicate internal `Timer` in `LocalWebSocketRegistry` — removed
+
+### Remaining Anti-Patterns
 
 | Anti-Pattern | Location | Severity |
 |---|---|---|
-| `Meter` instruments created on every call | `OpenTelemetryMetricsCollector` | 🔴 High |
-| Fire-and-forget (`_ = Task`) | `OfferMethodHandler.HandleAsync` | 🔴 High |
-| `lock()` inside `Parallel.ForEach` | `LocalWebSocketRegistry.PurgeDeadConnections` | 🟡 Medium |
-| Unbounded `Channel<T>` | `QueueService<T>` | 🟡 Medium |
-| Dead code (`WebSocketConnectionManager`) | `Infrastructure/Connection/Implementation/` | 🟡 Medium |
-| Dead code (`HandlerRegistration`) | `Infrastructure/Extension/HandlerRegistration.cs` | 🟢 Low |
-| `events.Count()` on `IEnumerable` | `RabbitMqPublisher.PublishBatchAsync` | 🟢 Low |
-| Frame payload `.ToArray()` from rented buffer | `FrameReader.TryReadFrame` | 🟢 Low |
-| New `IServiceScope` per publish call | `RabbitMqPublisher.PublishAsync` | 🟡 Medium |
-| JWT query token without path restriction | `InfrastructureDep.AddAuthentcationDep` | 🔴 High |
-
-### Tight Coupling Issues
-
-- `CallSessionGrain` directly depends on `IOutgoingMessageService` (Infrastructure concern injected into a Grain). In a multi-silo setup, `OutgoingMessageService` calls `LocalWebSocketRegistry`, which is silo-local — meaning ring-timeout notifications **only reach users connected to the same silo**. This is acknowledged in the grain's XML doc but is a production correctness issue.
-- `FanOutResolverManager` calls `IConnectionServices.GetUsersInGroupAsync` (Orleans RPC) then does local socket lookup — this only finds users locally on the same silo.
+| `UseLocalhostClustering()` | `Program.cs` | 🔴 Critical |
+| Hardcoded credentials | `appsettings.json` | 🔴 Critical |
+| Cross-silo fanout broken | `FanOutResolverManager.cs` | 🔴 Critical |
+| New `IServiceScope` per publish | `RabbitMqPublisher.cs` | 🟡 Medium |
+| `events.Count()` on `IEnumerable` | `RabbitMqPublisher.PublishBatchAsync` | 🟡 Medium |
+| `QueueService<T>` unbounded channel | `QueueService.cs` | 🟡 Medium |
+| No heartbeat scheduler | `GatewayIngressHandler.cs` | 🟡 Medium |
+| `GetEamil()` typo | `AuthServices.cs` | 🟢 Low |
 
 ---
 
 ## ⚡ Performance Review
 
-### Bottlenecks
+### v2 Improvements Applied
 
-**Critical — `OpenTelemetryMetricsCollector` creates new instruments on every call:**
-```csharp
-// WRONG — called millions of times per second:
-public void IncrementCounter(string name, ...)
-{
-    var counter = _meter.CreateCounter<long>(name); // ← allocates on every call
-    counter.Add(1, tags);
-}
+**`FrameWriter` — Pipe replaces Channel:**
+
 ```
-`Meter.CreateCounter` should be called once at construction and the returned `Counter<T>` cached. Creating instruments in the hot path is a documented anti-pattern in .NET Diagnostics and will cause significant overhead at scale.
+v1: Channel<byte[]>
+  new byte[] per frame → Channel.TryWrite → drain → socket.SendAsync(1 frame)
+  Allocations: 1 new byte[] per frame
+  Socket calls: 1 per frame
 
-**Medium — RabbitMQ scope creation per message:**
-```csharp
-// RabbitMqPublisher.PublishAsync — new scope on every publish
-using var scope = _serviceProvider.CreateScope();
-var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
+v2: System.IO.Pipelines
+  GetSpan/Advance (header) → Write (payload) → FlushAsync → drain → SendAsync(N frames)
+  Allocations: 0 (MemoryPool, reused Pipe segments)
+  Socket calls: 1 per buffer read (N frames coalesced automatically)
 ```
-Under high throughput this creates GC pressure. The `IPublishEndpoint` should be resolved once and reused, or the singleton `IBus` interface used directly.
 
-**Medium — Frame payload byte array allocation:**
-In `FrameReader.TryReadFrame`, even though `ArrayPool<byte>` is used as a receive buffer, the final frame is still materialized via `.ToArray()`:
-```csharp
-frame = new MessageFrame(currentType.Value,
-    _rentedBuffer.AsSpan(0, expectedLength.Value).ToArray()); // ← heap allocation
+**`FrameReader` — Pure Pipe + IMemoryOwner:**
+
 ```
-This creates a new managed array for every received frame, defeating part of the pooling benefit.
+v1: 3 copies per frame
+  ReceiveAsync(new byte[]) → copy to Pipe → copy to rented buffer → .ToArray() → new byte[]
 
-### WebSocket Scalability
+v2: 1 copy per frame
+  ReceiveAsync(pipe.GetMemory()) → copy to IMemoryOwner → MessageFrame(owner.Memory)
+  Frame returned to pool via IDisposable after handler completes
+```
 
-- **Single-silo configuration** is the primary scalability blocker. `UseLocalhostClustering()` limits the process to one node. Under load, this creates a single point of failure and a CPU/memory ceiling.
-- **Backpressure** is handled by dropping frames (`BoundedChannelFullMode.DropWrite`) rather than signaling the client. At 256 queued frames per connection, a slow client silently loses messages. A proper implementation should send a `RATE_LIMITED` error frame or apply TCP backpressure.
-- **Room fanout scalability**: `FanOutResolverManager.ResolveGroupContextsAsync` retrieves all members from `RoomGrain` (one Orleans RPC) then iterates locally. For large rooms (1000+ members) this is an O(N) local loop after a single grain call, which is acceptable, but cross-silo members are silently missed.
+**`OpenTelemetryMetricsCollector` — Zero hot-path allocation:**
 
-### Message Handling Efficiency
+```
+v1: CreateCounter() on every call → new Counter registration per call
+v2: FrozenDictionary lookup (O(1)) + TagList (stack) → zero heap allocation
+```
 
-| Aspect | Assessment |
-|---|---|
-| Deserialization | ✅ MessagePack — high performance binary format |
-| Handler lookup | ✅ `FrozenDictionary` — O(1), no locking |
-| Middleware chain | ✅ Delegate chain, zero allocation after startup |
-| Frame reading | ✅ `System.IO.Pipelines` + ArrayPool — near-zero copy |
-| Frame writing | ✅ Channel-based, single drain loop, no concurrent sends |
-| GZip detection | ✅ Magic-byte check — no decompression attempted unless needed |
+### Remaining Bottlenecks
 
-### State Management Issues
+`RabbitMqPublisher` creates a new `IServiceScope` on every message publish — GC pressure under high throughput. Should inject `IBus` directly (MassTransit registers it as Singleton).
 
-- `UserGrain._activeConnections` is an in-memory `HashSet<string>` — transient state lost on silo restart. After a silo crash and restart, `IsOnline` could be `true` in persisted state while `_activeConnections` is empty. The grain correctly handles this by only setting `IsOnline = true` when a connection is added, but stale `IsOnline = true` records in MongoDB could remain if the silo crashes after `WriteStateAsync` but before `_activeConnections` is populated.
-- `RoomGrain._cachedPresence` uses a 30-second TTL cache computed from fan-out to `UserGrain.IsOnlineAsync()`. For large rooms this spawns N concurrent Orleans RPCs — mitigated by `Task.WhenAll` with a 5-second timeout, which degrades gracefully to `Inactive`.
+`UserGrain._activeConnections` is transient (lost on silo restart). `IsOnline` in MongoDB can remain stale-true after a crash before a reconnect clears it.
+
+Cross-silo fanout: `FanOutResolverManager` retrieves group members from `RoomGrain` (correct, distributed) but looks up sockets in `LocalWebSocketRegistry` (silo-local). Users on other silos are silently missed — correctness issue, not just performance.
 
 ---
 
 ## 🔐 Security Review
 
-### Vulnerabilities
+### Fixed in v2
+
+**JWT query-string token path restriction:**
+
+```csharp
+OnMessageReceived = context =>
+{
+    if (!context.HttpContext.Request.Path.StartsWithSegments("/ws"))
+        return Task.CompletedTask;
+    if (!context.HttpContext.WebSockets.IsWebSocketRequest)
+        return Task.CompletedTask;
+    var token = context.Request.Query["token"].FirstOrDefault();
+    if (!string.IsNullOrWhiteSpace(token)) context.Token = token;
+    return Task.CompletedTask;
+};
+```
+
+**Auth error details no longer leaked:**
+
+- `OnAuthenticationFailed` logs exception type only (not message)
+- `OnChallenge` returns generic `{"error":"unauthorized","message":"Authentication required"}`
+
+**Missing `SecretKey` throws at startup** — no silent null signing key.
+
+**`ValidateIssuer` corrected** — was `ValidateActor` in v1.
+
+**`ClockSkew` reduced** from default 5 minutes to 30 seconds.
+
+**Frame size validation added** — 1 MB hard limit in `FrameReader`. Connection closed on violation.
+
+### Remaining Vulnerabilities
 
 #### 🔴 Critical — Credentials in `appsettings.json`
 
@@ -321,61 +357,19 @@ This creates a new managed array for every received frame, defeating part of the
 "JWT": { "SecretKey": "YourSuperSecretKeyForJwtAuthentication" },
 "RabbitMqSettings": { "Username": "guest", "Password": "guest" }
 ```
-Hardcoded secrets in source-controlled configuration files. The JWT secret is a weak, human-readable string that would be trivially brute-forced. Production deployments **must** use environment variables, Azure Key Vault, AWS Secrets Manager, or a secrets management solution.
+Hardcoded in source-controlled config. Must use environment variables or secrets manager.
 
-#### 🔴 High — JWT Query String Token Without Path Guard
+#### 🟡 Medium — No `Origin` Header Validation
 
-```csharp
-opt.Events = new JwtBearerEvents
-{
-    OnMessageReceived = context =>
-    {
-        var accessToken = context.Request.Query["token"];
-        if (!string.IsNullOrEmpty(accessToken))
-            context.Token = accessToken; // ← applied to ALL paths, not just /ws
-        return Task.CompletedTask;
-    }
-};
-```
-The JWT token from `?token=` query parameter is accepted for **all HTTP paths**, not just the WebSocket endpoint. A properly implemented restriction should check `context.HttpContext.Request.Path.StartsWithSegments("/ws")` before assigning the token. Tokens in query strings are also logged by many reverse proxies and access logs.
-
-#### 🔴 High — Frame Drop Without Client Notification
-
-When `FrameWriter`'s bounded channel is full, frames are silently dropped:
-```csharp
-_logger.LogWarning("FrameWriter write queue full — frame dropped");
-// No error frame sent to client
-```
-A client receiving no acknowledgement may retry indefinitely, or remain unaware that messages were lost — a correctness and reliability issue.
-
-#### 🟡 Medium — No Message Size Validation
-
-`FrameReader.TryReadFrame` reads the payload length from the header:
-```csharp
-if (!reader.TryReadBigEndian(out int length)) return false;
-```
-There is no validation that `length` is within an acceptable bound (e.g., `> 0 && < MaxFrameSize`). A malicious client can send a frame header declaring a 2 GB payload, causing `_arrayPool.Rent(2_000_000_000)` to be called, potentially exhausting memory. **A maximum frame size must be enforced.**
+No allowlist check on the `Origin` header in `WebSocketMiddleware`. A malicious page can open a WebSocket to the gateway if the user has a valid JWT.
 
 #### 🟡 Medium — No Token Revocation
 
-Once a JWT is issued, it is valid until expiry regardless of logout, password change, or account suspension. The gateway has no mechanism to reject revoked tokens mid-connection. A revocation list or short token expiry with refresh is required.
+JWT valid until expiry regardless of logout or account suspension. Requires short expiry + refresh token cycling or a revocation list.
 
-#### 🟡 Medium — Cross-Site WebSocket Hijacking
+#### 🟢 Low — `GetEamil()` Typo
 
-No `Origin` header validation is present. A malicious website could open a WebSocket to the gateway if a user's browser has a valid JWT cookie. The middleware should validate the `Origin` header against an allowlist.
-
-#### 🟢 Low — Method Injection
-
-`MethodDispatcher` normalizes method names to lowercase but does not restrict the character set. Method names with special characters or excessive length are forwarded to the `FrozenDictionary` lookup, which is safe but wastes processing. Method name length should be bounded.
-
-### Recommendations
-
-1. Use environment variables / secrets manager for all credentials.
-2. Restrict JWT query string token to WebSocket paths only.
-3. Add frame size validation (e.g., `MaxFrameSize = 1 MB`).
-4. Implement `Origin` header allowlist validation.
-5. Add token revocation via short expiry + refresh token cycling.
-6. Ensure TLS termination at the ingress layer (nginx/AGIC) — not handled in the Dockerfile.
+`AuthServices.GetEamil()` — minor naming error.
 
 ---
 
@@ -386,149 +380,142 @@ No `Origin` header validation is present. A malicious website could open a WebSo
 ```
 Client → GET /ws HTTP/1.1
          Upgrade: websocket
-         Authorization: Bearer <jwt>   OR   ?token=<jwt>
+         Authorization: Bearer <jwt>   OR   ?token=<jwt>  (WebSocket path only — v2 fix)
 ```
 
-1. ASP.NET Core `UseAuthentication()` middleware validates the JWT and populates `context.User`.
-2. `WebSocketMiddleware.InvokeAsync` checks `context.Request.Path.StartsWithSegments("/ws")`.
-3. If not a WebSocket request → `400 Bad Request`.
-4. If not authenticated → `401 Unauthorized`.
-5. If `UserId` claim missing → `401 Unauthorized`.
-6. `AcceptWebSocketAsync()` upgrades the HTTP connection to a WebSocket.
-7. A new DI scope is created; `IGatewayIngressHandler` is resolved.
-8. `GatewayIngressHandler.HandleAsync(userId, socket, ct)` is called.
+1. `UseAuthentication()` validates JWT, populates `context.User`.
+2. `WebSocketMiddleware` checks path `/ws` **first** — non-WS paths pass to `_next`.
+3. Rejects non-WebSocket → `400`.
+4. Rejects unauthenticated → `401`.
+5. Rejects missing `UserId` claim → `401`.
+6. `AcceptWebSocketAsync()` upgrades.
+7. New DI scope created; `IGatewayIngressHandler` resolved (Scoped).
+8. `GatewayIngressHandler.HandleAsync(userId, socket, ct)` begins.
 
 ### Step 2 — Connection Registration
 
 ```
 GatewayIngressHandler
-  → FrameReader / FrameWriter constructed
-  → MessageContext created (ConnectionId = new Guid, UserId set)
+  → FrameReader / FrameWriter constructed (both Pipe-based, v2)
+  → MessageContext created (ConnectionId = Guid, TimeProvider.System)
   → ConnectionServices.ConnectAsync(userId, context)
-      → LocalWebSocketRegistry.Register(userId, context)    [local]
+      → LocalWebSocketRegistry.Register(userId, context)    [local O(1)]
       → UserGrain.ConnectAsync(connectionId)               [Orleans, persisted]
-  → FrameWriter.Start() — drain loop starts
-  → FrameReader.Start() — pipe pump starts
+  → FrameWriter.Start() — Pipe drain loop starts
+  → FrameReader.Start() — socket pump starts
   → "connected" response frame sent to client
 ```
 
 ### Step 3 — Inbound Message Processing
 
 ```
-Client sends binary frame:
-  [4-byte length][1-byte type][MessagePack payload]
+Client sends binary frame: [4-byte length BE][1-byte type][MessagePack payload]
 
-FrameReader (Pipe) → TryReadFrame assembles from segments
-  → yields MessageFrame via IAsyncEnumerable
+FrameReader pump:
+  socket.ReceiveAsync(pipe.GetMemory(4096))  ← zero alloc (Pipe memory)
+  pipe.Writer.Advance(count)
+  pipe.Writer.FlushAsync() on EndOfMessage only
 
-GatewayIngressHandler.HandleFrameAsync(context, frame, ct)
-  → switch on FrameType:
+ReadFramesAsync:
+  pipe.Reader.ReadAsync()
+  TryReadFrame (SequenceReader stack, IMemoryOwner for payload)
+  yields MessageFrame (IDisposable)
+
+GatewayIngressHandler.HandleFrameAsync:
+  using (frame) {   ← returns IMemoryOwner to pool after handler completes
+    switch FrameType:
       Message → pipeline.ExecuteAsync(context, frame.Payload, ct)
-      Ping    → context.SendPongAsync()
+      Ping    → context.SendPong()  [void, WritePongNoWait]
       Close   → context.CloseAsync()
+  }
 
-MessagePipeline middleware chain:
-  1. MetricsMiddleware: start Activity, start Stopwatch
-  2. RateLimitMiddleware: GrainFactory.GetGrain<IRateLimitGrain>(userId).AcquireAsync(100, 1s)
-       → if denied: send RATE_LIMITED error, return
-  3. DecompressionMiddleware: if magic bytes 0x1F 0x8B → GZip decompress
-  4. DispatchMiddleware:
-       → MessageSerializer.Deserialize<MessageEnvelope>(payload)
-       → validate envelope.Method is not null/empty
-       → MethodDispatcher.DispatchAsync(context, method, params, ct)
+MessagePipeline:
+  1. MetricsMiddleware: StartActivity (SetTag direct, no array alloc), Stopwatch
+  2. RateLimitMiddleware: RateLimitGrain.AcquireAsync(100, 1s)
+  3. DecompressionMiddleware: IsCompressed(magic bytes) → GZip if needed
+  4. DispatchMiddleware: MessagePack deserialize → validate → DispatchAsync
 ```
 
-### Step 4 — Handler Execution
+### Step 4 — Handler Execution (Offer example, v2)
 
 ```
-MethodDispatcher:
-  → FrozenDictionary.TryGetValue(method.ToLowerInvariant())
-  → handler.Handle(context, parameters, ct)
-       → BaseMethodHandler<T>.Handle deserializes T from params
-       → HandleAsync(context, request, ct) — concrete handler logic
-
-Example: NewMessageMethodHandler
-  → IMessagePublisher.PublishAsync(InsertMessageCommand)
-       → RabbitMqPublisher → MassTransit IPublishEndpoint → RabbitMQ exchange
+MethodDispatcher: FrozenDictionary.TryGetValue(method.ToLowerInvariant())
+  → OfferMethodHandler.HandleAsync:
+      Step 1: validate TargetUserId, self-call guard
+      Step 2: CallSessionGrain.CreateAsync()           ← atomic grain
+      Step 3: await _publisher.PublishAsync(event)     ← awaited, not fire-and-forget
+               on failure: RollbackSessionAsync → grain.EndAsync("publish_failed")
+      Step 4: await outgoingMessage.SendToUserAsync()  ← target notification
+      Step 5: context.SendResponseAsync("offer_sent")  ← caller confirmation
 ```
 
 ### Step 5 — Outbound Event Processing
 
 ```
-Backend service processes InsertMessageCommand
-  → publishes BroadcastMessageCommand to RabbitMQ
-
-Gateway MassTransit Consumer: BroadcastMessageConsumer.Consume(...)
-  → OutgoingMessageService.SendToRoomAsync(excludeSenderId, chatId, message)
-       → FanOutResolverManager.ResolveGroupContextsAsync(chatId, output, excludeUserId)
-           → ConnectionServices.GetUsersInGroupAsync(chatId)
-               → RoomGrain.GetMembersAsync()   [Orleans]
-           → for each member: ConnectionServices.GetUserContexts(userId)
-               → LocalWebSocketRegistry.GetUserContexts(userId)
-       → for each context: MessageContext.SendRawAsync(serializedBytes)
-           → FrameWriter channel enqueue
-               → drain loop: socket.SendAsync(...)
+Backend → BroadcastMessageCommand → RabbitMQ
+Gateway BroadcastMessageConsumer.Consume(...)
+  → OutgoingMessageService.SendToRoomAsync(excludeUserId, chatId, message)
+      → FanOutResolverManager.ResolveGroupContextsAsync(chatId)
+          → RoomGrain.GetMembersAsync()              [Orleans distributed]
+          → LocalWebSocketRegistry.GetUserContexts() [silo-local lookup]
+      → for each context: MessageContext.SendRawAsync(serializedBytes)
+          → FrameWriter.WriteRawAsync()
+              → WriteFrameHeader: GetSpan/Advance (zero alloc)
+              → pipe.Writer.Write(payload)
+              → pipe.Writer.FlushAsync()  ← built-in backpressure if > 64KB
+              → DrainAsync: coalesced multi-segment send to socket
 ```
 
 ### Step 6 — Disconnection
 
 ```
-FrameReader.ReadFramesAsync completes (socket close / cancel)
-GatewayIngressHandler finally block:
+FrameReader.ReadFramesAsync completes
+  → parserState.Dispose() — returns pending IMemoryOwner to pool
+
+GatewayIngressHandler finally:
   → ConnectionServices.DisconnectAsync(userId, connectionId)
       → LocalWebSocketRegistry.Unregister(connectionId)
       → UserGrain.DisconnectAsync(connectionId)
            → removes from _activeConnections
-           → if empty: sets IsOnline=false, writes state to MongoDB
+           → if empty: IsOnline=false, WriteStateAsync → MongoDB
 ```
 
 ---
 
 ## 🧩 Orleans Deep Dive
 
-### Where Orleans Is Used Correctly
+### Correctly Used Grains
 
 #### ✅ `UserGrain` — Presence Tracking
-
-Single-threaded grain keyed by `userId`. Maintains an in-memory `HashSet<string>` of active `connectionId` values and persisted `IsOnline`/`LastSeen` state. Correctly writes state only on first connect and last disconnect, avoiding redundant I/O.
-
-**What's good:** Atomic connect/disconnect with no race condition. Presence computed from live memory. `GetPresenceAsync()` returns typed `UserPresence` DTO.
+Single-threaded grain keyed by `userId`. Persists `IsOnline`/`LastSeen`. In-memory `HashSet<string>` for active connections. Writes state only on first connect and last disconnect.
 
 #### ✅ `RateLimitGrain` — Distributed Token Bucket
+Per-user grain. Single-threaded execution replaces `Interlocked` CAS. `RegisterGrainTimer` for refill. In-memory only. One bucket per user across **all silos** — accurate in multi-node clusters.
 
-Per-user grain implementing a token bucket algorithm. Single-threaded execution eliminates `Interlocked` CAS loops. Uses `RegisterGrainTimer` for refill — no background threads or `MemoryCache` eviction bugs. In-memory only (acceptable for rate limiting; reset on silo restart gives users a free window, not a correctness problem).
-
-**What's good:** One bucket per user across ALL silos. Mathematically correct across a cluster — unlike `IMemoryCache`-based limiters that are per-process.
-
-#### ✅ `CallSessionGrain` — WebRTC Session Lifecycle
-
-Replaces what would otherwise be a distributed lock + in-memory store. `CreateAsync` is atomic by grain contract. Owns a one-shot `IGrainTimer` (ring timeout). Persisted state survives silo restart. `DeactivateOnIdle()` on `EndAsync` reclaims memory automatically.
-
-**What's good:** The race condition on concurrent call creation (two clients calling simultaneously) is impossible — grain single-threaded execution handles it at the framework level.
+#### ✅ `CallSessionGrain` — WebRTC Session (v2 improved)
+`CreateAsync` atomic by grain contract. One-shot `IGrainTimer` (ring). Persisted state. `DeactivateOnIdle()` on `EndAsync`. v2 improvement: caller now `awaits` `PublishAsync` and calls `grain.EndAsync("publish_failed")` on failure — grain state stays consistent with backend.
 
 #### ✅ `ActiveChatSessionGrain` — Self-Healing Index
+`GetSessionAsync()` validates liveness via `ICallSessionGrain.IsActiveAsync()`. Stale entries auto-cleared on next read.
 
-The `GetSessionAsync()` method validates liveness by calling `ICallSessionGrain.IsActiveAsync()` before returning. If the session grain was deactivated or the silo crashed, the index self-corrects. This is a robust distributed patterns implementation.
+#### ✅ `MigrationFlagGrain` — Idempotent Startup
+`RoomGrainMigrationService` uses `IMigrationFlagGrain` to run MongoDB → RoomGrain migration exactly once.
 
-#### ✅ `MigrationFlagGrain` — Idempotent Startup Migration
+### Where Orleans Is Still NOT Used But Should Be
 
-`RoomGrainMigrationService` uses `IMigrationFlagGrain` to ensure the MongoDB → RoomGrain member migration runs exactly once across multiple gateway restarts. Clean pattern for distributed startup tasks.
+#### ❌ Cross-Silo WebSocket Fanout (Critical — unchanged)
 
-### Where Orleans Is NOT Used But Should Be
+`LocalWebSocketRegistry` is per-silo. `BroadcastMessageConsumer` on Silo A cannot reach users on Silo B.
 
-#### ❌ Cross-Silo WebSocket Fanout (Critical Gap)
-
-**Current:** `LocalWebSocketRegistry` is per-silo. When a `BroadcastMessageConsumer` runs on Silo A, users connected to Silo B are **invisible** and receive nothing.
-
-**Correct approach:** Use **Orleans Streams** as the distribution layer. Each user or room subscribes to a stream; the `CallSessionGrain` and consumers publish to streams rather than calling `IOutgoingMessageService` directly.
+**Required:** Orleans Streams per-user/per-room.
 
 ```csharp
-// Ideal: publish to a stream from any grain/service
+// Publish side (any grain/consumer):
 var stream = streamProvider.GetStream<OutgoingMessage>(StreamId.Create("rooms", roomId));
 await stream.OnNextAsync(message);
 
-// On each silo: subscribe in UserGrain or ConnectionServices
-await stream.SubscribeAsync(async (msg, seq) => {
+// Subscribe side (each silo, per connected user):
+await stream.SubscribeAsync(async (msg, _) => {
     foreach (var ctx in _localRegistry.GetUserContexts(userId))
         await ctx.SendRawAsync(serializedMsg, FrameType.Message);
 });
@@ -536,19 +523,7 @@ await stream.SubscribeAsync(async (msg, seq) => {
 
 #### ❌ Heartbeat / Idle Connection Management via Reminders
 
-`MessageContext.NeedsHeartbeat(timeout)` is implemented but never called. This logic should be driven by an **Orleans Reminder** (durable timer that survives silo restarts) on `UserGrain`, which periodically checks connection liveness and sends Ping frames.
-
-```csharp
-// In UserGrain, implement IRemindable:
-public Task ReceiveReminder(string reminderName, TickStatus status)
-{
-    // Send ping to all active connections, or deactivate stale ones
-}
-```
-
-#### ❌ `ConnectionServices` Could Be a Grain
-
-Group join/leave calls currently go directly to `RoomGrain`. `ConnectionServices` itself could become a silo-local grain (or use a local silo activation) that caches frequently accessed group memberships, reducing Orleans RPC overhead for every fanout.
+`MessageContext.NeedsHeartbeat(timeout)` is now testable via `TimeProvider` but **never called**. Should be driven by an Orleans Reminder on `UserGrain`.
 
 ### Grain Type Recommendations
 
@@ -557,18 +532,6 @@ Group join/leave calls currently go directly to `RoomGrain`. `ConnectionServices
 | `INotificationStreamGrain` | Per-room/per-user Orleans Stream subscriber | 🔴 High |
 | `IHeartbeatGrain` | Reminder-based ping scheduler | 🟡 Medium |
 | `IOfflineInboxGrain` | Queue messages for offline users | 🟡 Medium |
-| `IConnectionMetricsGrain` | Silo-level connection statistics | 🟢 Low |
-
-### Orleans Streams Usage Plan
-
-```
-Phase 1 (current): Direct LocalWebSocketRegistry lookup — silo-local only
-Phase 2 (needed):  Introduce Orleans Streams per-user/per-room
-Phase 3:           Replace MassTransit consumers with Orleans Stream subscribers
-Phase 4:           Full cross-silo fanout via Streams
-Phase 5:           Remove MassTransit dependency for internal gateway events
-```
-*(Phase 5 is referenced in `CallSessionGrain` comments but no earlier phases are implemented.)*
 
 ---
 
@@ -585,21 +548,25 @@ graph TB
     end
 
     subgraph Gateway Process - Silo A
-        WM[WebSocketMiddleware<br/>JWT Auth Gate]
+        WM[WebSocketMiddleware<br/>JWT path-restricted]
         GIH[GatewayIngressHandler<br/>Scoped per connection]
-        FR[FrameReader<br/>System.IO.Pipelines]
-        FW[FrameWriter<br/>Channel bounded 256]
+        FR[FrameReader<br/>Pipe + IMemoryOwner<br/>1MB limit]
+        FW[FrameWriter<br/>Pipe + GetSpan/Advance<br/>auto-batching]
         MP[MessagePipeline<br/>Metrics→RateLimit→Decompress→Dispatch]
         MD[MethodDispatcher<br/>FrozenDictionary]
 
         subgraph Handlers
             MH[Message Handlers]
-            CH[Call Handlers]
+            CH[Call Handlers<br/>validated + rollback]
             SH[State Handlers]
         end
 
         subgraph LocalRegistry
-            WSR[LocalWebSocketRegistry<br/>ConcurrentDictionary]
+            WSR[LocalWebSocketRegistry<br/>ConcurrentDict + ImmutableHashSet]
+        end
+
+        subgraph Background
+            DS[DeadSocketCleanupService<br/>PeriodicTimer 30s]
         end
 
         subgraph Consumers
@@ -611,395 +578,275 @@ graph TB
     end
 
     subgraph Orleans Cluster
-        UG[UserGrain<br/>Presence + Connections]
-        RG[RoomGrain<br/>Members + Presence Cache]
-        RL[RateLimitGrain<br/>Token Bucket]
-        CSG[CallSessionGrain<br/>Ring Timer + State]
-        ACS[ActiveChatSessionGrain<br/>Chat→Session Index]
-        MF[MigrationFlagGrain<br/>Idempotency]
+        UG[UserGrain]
+        RG[RoomGrain]
+        RL[RateLimitGrain]
+        CSG[CallSessionGrain<br/>rollback support]
+        ACS[ActiveChatSessionGrain]
+        MF[MigrationFlagGrain]
     end
 
     subgraph Storage
-        MDB[(MongoDB<br/>Domain Data +<br/>Orleans State)]
+        MDB[(MongoDB)]
     end
 
-    subgraph Message Bus
-        RMQ[RabbitMQ<br/>MassTransit]
+    subgraph MessageBus
+        RMQ[RabbitMQ / MassTransit]
     end
 
-    C1 & C2 & CN -->|wss:// binary| WM
+    C1 & C2 & CN -->|wss://| WM
     WM --> GIH
     GIH --> FR & FW
     FR --> MP
     MP --> MD
     MD --> MH & CH & SH
-    MH & CH & SH -->|IMessagePublisher| RMQ
-    GIH -->|ConnectAsync| WSR
+    MH & CH & SH -->|await PublishAsync| RMQ
+    GIH --> WSR
     WSR --> UG & RG
+    DS --> WSR
 
     BMC & ADC & SAC & NCC -->|Consume| RMQ
-    BMC -->|SendToRoomAsync| WSR
-    ADC -->|SendToUserAsync| WSR
-    SAC -->|SendToRoomAsync| WSR
-    NCC -->|RegisterInGroupAsync| RG
+    BMC & SAC --> WSR
+    ADC --> WSR
+    NCC --> RG
 
-    MP -->|AcquireAsync| RL
-    CH -->|IGrainFactory| CSG & ACS
-    RG -->|Fan-out IsOnlineAsync| UG
-    UG & RG & RL & CSG & ACS & MF -->|Persist| MDB
+    MP --> RL
+    CH --> CSG & ACS
+    RG --> UG
+    UG & RG & RL & CSG & ACS & MF --> MDB
 ```
 
-### 🔹 Sequence Diagram — Message Send Flow
+### 🔹 Sequence Diagram — Offer Flow (v2)
 
 ```mermaid
 sequenceDiagram
     participant C as Client
     participant WM as WebSocketMiddleware
     participant GIH as GatewayIngressHandler
-    participant FR as FrameReader
+    participant FR as FrameReader Pipe
     participant MP as MessagePipeline
     participant RL as RateLimitGrain
-    participant DM as DispatchMiddleware
-    participant NH as NewMessageHandler
+    participant OH as OfferHandler v2
+    participant CSG as CallSessionGrain
     participant RMQ as RabbitMQ
     participant BC as BroadcastConsumer
-    participant OMS as OutgoingMessageService
-    participant RG as RoomGrain
-    participant FW as FrameWriter
+    participant FW as FrameWriter Pipe
 
     C->>WM: WSS Upgrade + JWT
-    WM->>WM: Validate JWT, extract userId
+    WM->>WM: Path=/ws → Auth → UserId
     WM->>GIH: HandleAsync(userId, socket)
-    GIH->>GIH: Register connection (LocalRegistry + UserGrain)
-    GIH-->>C: Frame: "connected" + connectionId
+    GIH->>GIH: Register local + UserGrain
+    GIH-->>C: Frame: connected
 
-    loop Message Loop
-        C->>FR: Binary frame [4-byte len][type][MP payload]
-        FR->>MP: ExecuteAsync(context, payload)
-        MP->>RL: AcquireAsync(100, 1s)
-        alt Allowed
-            RL-->>MP: IsAllowed=true
-            MP->>DM: InvokeAsync
-            DM->>DM: MessagePack.Deserialize<MessageEnvelope>
-            DM->>NH: Handle(context, InsertMessageCommand)
-            NH->>RMQ: Publish InsertMessageCommand
-            RMQ-->>NH: ack
-        else Rate Limited
-            RL-->>MP: IsAllowed=false, RetryAfter=1s
-            MP-->>C: Error frame: RATE_LIMITED
-        end
+    C->>FR: Binary frame [5B header][MP payload]
+    Note over FR: GetMemory zero-alloc<br/>FlushAsync on EndOfMessage only
+    FR->>MP: ExecuteAsync(payload IMemoryOwner)
+    MP->>RL: AcquireAsync(100, 1s)
+    RL-->>MP: IsAllowed=true
+    MP->>OH: HandleAsync(OfferSignal)
+    OH->>OH: Validate TargetUserId
+    OH->>CSG: CreateAsync()
+    CSG-->>OH: created=true
+    OH->>RMQ: await PublishAsync(SessionCreatedEvent)
+    alt Publish fails
+        RMQ-->>OH: Exception
+        OH->>CSG: EndAsync publish_failed
+        OH-->>C: Error: SERVICE_UNAVAILABLE
+    else Publish ok
+        OH->>FW: SendToUserAsync(target)
+        OH-->>C: Response: offer_sent
     end
 
     RMQ->>BC: BroadcastMessageCommand
-    BC->>OMS: SendToRoomAsync(excludeSenderId, chatId, msg)
-    OMS->>RG: GetMembersAsync()
-    RG-->>OMS: [userId1, userId2, ...]
-    OMS->>OMS: Resolve local contexts for each user
-    OMS->>FW: SendRawAsync(serializedBytes) × N
-    FW-->>C: Frame: new_message event
+    BC->>FW: SendRawAsync(bytes)
+    Note over FW: GetSpan/Advance header<br/>FlushAsync backpressure<br/>Multi-segment batch
+    FW-->>C: Frame: new_message
 ```
 
-### 🔹 Data Flow Diagram
-
-```mermaid
-flowchart LR
-    subgraph Ingress
-        Client -->|wss binary| WS[WebSocket Frame]
-        WS -->|Pipe| Decompress{Compressed?}
-        Decompress -->|No| Deser[MessagePack\nDeserialize]
-        Decompress -->|GZip| GZ[GZip Decompress] --> Deser
-        Deser --> Env[MessageEnvelope\nMethod + Params]
-    end
-
-    subgraph Dispatch
-        Env -->|FrozenDict lookup| Handler[IMethodHandler]
-        Handler -->|Serialize params| Pub[IMessagePublisher]
-        Pub -->|AMQP| RMQ[(RabbitMQ)]
-    end
-
-    subgraph Backend Services
-        RMQ -->|Consume| Svc[Backend Microservice]
-        Svc -->|Process + Persist| DB[(Service DB)]
-        Svc -->|Publish event| RMQ
-    end
-
-    subgraph Egress
-        RMQ -->|MassTransit Consumer| Consumer[Gateway Consumer]
-        Consumer --> OMS[OutgoingMessageService]
-        OMS -->|GetMembersAsync| RG[RoomGrain]
-        RG -->|Member list| OMS
-        OMS -->|GetUserContexts| Reg[LocalWebSocketRegistry]
-        Reg -->|MessageContext list| OMS
-        OMS -->|MessagePack serialize| FW[FrameWriter\nChannel]
-        FW -->|Binary frame| WS2[WebSocket.SendAsync]
-        WS2 -->|wss binary| Client2[Target Clients]
-    end
-```
-
-### 🔹 Connection Lifecycle
+### 🔹 Connection Lifecycle (v2)
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Connecting: Client WSS request
-    Connecting --> Rejected: Not WS / Not Auth / No userId
-    Rejected --> [*]
+    [*] --> PathCheck: Client WSS request
+    PathCheck --> PassThrough: path != /ws
+    PassThrough --> [*]
+    PathCheck --> Validating: path == /ws
 
-    Connecting --> Connected: AcceptWebSocketAsync\n+ Register local + UserGrain
+    Validating --> Rejected400: Not WebSocket
+    Validating --> Rejected401: Not authenticated
+    Rejected400 --> [*]
+    Rejected401 --> [*]
+
+    Validating --> Connected: AcceptWebSocketAsync\nRegister local + UserGrain
 
     Connected --> Processing: Frame received
     Processing --> RateLimited: RateLimitGrain denied
     RateLimited --> Connected: Error frame sent
     Processing --> Dispatching: Rate OK + deserialized
-    Dispatching --> Connected: Handler complete
+    Dispatching --> Connected: Handler done, using frame disposes IMemoryOwner
 
-    Connected --> Pinging: Ping frame received
-    Pinging --> Connected: Pong sent
+    Connected --> Pong: Ping received
+    Pong --> Connected: WritePongNoWait void
 
     Connected --> Closing: Close frame / cancel / error
-    Closing --> Cleanup: DisconnectAsync\n(LocalRegistry + UserGrain)
-    Cleanup --> [*]: Grain: IsOnline=false if last connection
-
-    note right of Connected
-        FrameReader: Pipe pump running
-        FrameWriter: Channel drain running
-        UserGrain: connection tracked
-    end note
-
-    note right of Cleanup
-        LocalWebSocketRegistry: Unregister
-        UserGrain: DisconnectAsync → WriteState
-        FrameReader: StopAsync
-        FrameWriter: Channel complete
-    end note
-```
-
-### 🔹 Orleans Grain Interaction Diagram
-
-```mermaid
-graph LR
-    subgraph Gateway
-        CS[ConnectionServices]
-        RLM[RateLimitMiddleware]
-        OH[OfferMethodHandler]
-        CS2[CallSessionGrain\nTimeout Callback]
-    end
-
-    subgraph Orleans
-        UG[UserGrain\nuserId key]
-        RG[RoomGrain\nchatId key]
-        RL[RateLimitGrain\nuserId key]
-        CSG[CallSessionGrain\nsessionId key]
-        ACSG[ActiveChatSessionGrain\nchatId key]
-        MFG[MigrationFlagGrain\nroom_migration key]
-    end
-
-    subgraph MongoDB
-        US[(UserState\nIsOnline, LastSeen)]
-        RS[(RoomState\nMembers HashSet)]
-        CSS[(CallSessionState\nInfo, IsActive)]
-        ACSS[(ActiveChatSessionState\nSessionId)]
-        MFS[(MigrationDone flag)]
-    end
-
-    CS -->|ConnectAsync / DisconnectAsync| UG
-    CS -->|JoinAsync / LeaveAsync / GetMembersAsync| RG
-    RLM -->|AcquireAsync| RL
-    OH -->|CreateAsync| CSG
-    OH -->|SetSessionAsync| ACSG
-    CS2 -->|EndAsync| CSG
-    CSG -->|ClearAsync| ACSG
-    ACSG -->|IsActiveAsync| CSG
-
-    RG -->|IsOnlineAsync ×N| UG
-
-    UG <-->|Persist| US
-    RG <-->|Persist| RS
-    CSG <-->|Persist| CSS
-    ACSG <-->|Persist| ACSS
-    MFG <-->|Persist| MFS
+    Closing --> Cleanup: DisconnectAsync\nparserState.Dispose
+    Cleanup --> [*]: UserGrain IsOnline=false if last connection
 ```
 
 ---
 
-## ⚠️ Known Issues
+## ✅ Resolved Issues (v2)
+
+The following issues identified in the v1 analysis have been **fully resolved**:
+
+| # | Issue | Resolution |
+|---|---|---|
+| 1 | `OpenTelemetryMetricsCollector` creates instruments on every call | ✅ `FrozenDictionary` pre-warmed + `ConcurrentDictionary` fallback + `TagList` stack |
+| 2 | `MetricsMiddleware` `new[]` tag arrays on every message | ✅ Direct `SetTag` calls + typed 2-tag overloads. Zero heap alloc. |
+| 3 | `FrameWriter` `Channel<byte[]>` with silent `DropWrite` | ✅ `System.IO.Pipelines`. Built-in backpressure. Auto-batching. Zero alloc header. |
+| 4 | `FrameReader` 3 copies per frame (`ToArray()` hot path) | ✅ Pure Pipelines. `IMemoryOwner<byte>`. 1 copy. `FrameParserState` struct. |
+| 5 | No frame size validation — memory exhaustion vector | ✅ 1 MB hard limit. Connection closed on violation. |
+| 6 | `MessageFrame` not returning buffer to pool | ✅ `MessageFrame : IDisposable`, `using(frame)` in handler. |
+| 7 | `MessageContext` — `LastActivityAt` public set, counter before send | ✅ `private set`, counter only after success. |
+| 8 | `MessageContext` — `DateTime.UtcNow` hardcoded | ✅ `TimeProvider` injected, testable. |
+| 9 | `MessageContext.Items` always-allocated `ConcurrentDictionary` | ✅ Lazy `Dictionary<string,object>`. |
+| 10 | `SendAsync/SendRaw/SendResponse/SendError` return `Task` | ✅ All return `ValueTask<bool>`. |
+| 11 | `SendPing/SendPong` return `Task` + allocate | ✅ `void` + `WritePingNoWait/WritePongNoWait`. |
+| 12 | `CloseAsync` not idempotent | ✅ Guard clause on `Closing \| Disconnected`. |
+| 13 | JWT query-string token accepted on all paths | ✅ Restricted to `/ws` + `IsWebSocketRequest`. |
+| 14 | `ValidateActor` (wrong flag) | ✅ Corrected to `ValidateIssuer`. |
+| 15 | Missing JWT `SecretKey` silent null | ✅ Throws `InvalidOperationException` at startup. |
+| 16 | Auth failure details exposed to client | ✅ `OnAuthenticationFailed` logs type only. Generic 401 response. |
+| 17 | `ClockSkew` default 5 minutes | ✅ Reduced to 30 seconds. |
+| 18 | `OfferMethodHandler` fire-and-forget `_ = PublishAsync()` | ✅ Full `await`. Grain rollback on failure. |
+| 19 | `OfferMethodHandler` no input validation | ✅ `TargetUserId` null check + self-call guard. |
+| 20 | `PurgeDeadConnections` `lock()` inside `Parallel.ForEach` | ✅ Simple lock-free `foreach`. |
+| 21 | Duplicate timers for dead-socket cleanup | ✅ Internal `Timer` removed. Single `DeadSocketCleanupService`. |
+| 22 | Dead code `WebSocketConnectionManager` | ✅ Removed. |
+| 23 | Dead code `HandlerRegistration` (`Activator.CreateInstance`) | ✅ Removed. |
+| 24 | Double `CancelAsync` in `FrameReader.DisposeAsync` | ✅ Single CTS, single cancel path. |
+| 25 | `FrameReader` flushes on every receive chunk | ✅ Flush only on `EndOfMessage`. |
+
+---
+
+## ⚠️ Remaining Known Issues
 
 | # | Issue | Severity | Component |
 |---|---|---|---|
-| 1 | `UseLocalhostClustering()` — single-silo only, not production-ready | 🔴 Critical | `Program.cs` |
-| 2 | JWT `SecretKey` is a weak hardcoded string in `appsettings.json` | 🔴 Critical | `appsettings.json` |
-| 3 | RabbitMQ credentials (`guest/guest`) hardcoded in config | 🔴 Critical | `appsettings.json` |
-| 4 | `OpenTelemetryMetricsCollector` creates new instruments on every metric call | 🔴 Critical | `OpenTelemetryMetricsCollector.cs` |
-| 5 | Cross-silo WebSocket fanout is broken — `LocalWebSocketRegistry` is per-silo | 🔴 Critical | `FanOutResolverManager.cs` |
-| 6 | No frame size validation — client can declare 2 GB frame, exhausting memory | 🔴 High | `FrameReader.cs` |
-| 7 | `OfferMethodHandler` fire-and-forget (`_ = publisher.PublishAsync(...)`) — unobserved exceptions | 🔴 High | `OfferMethodHandler.cs` |
-| 8 | JWT query token not path-restricted — applies to all HTTP routes | 🔴 High | `InfrastructureDep.cs` |
-| 9 | Silent frame drop when `FrameWriter` channel is full — client not notified | 🟡 Medium | `FrameWriter.cs` |
-| 10 | `PurgeDeadConnections` uses `lock()` inside `Parallel.ForEach` — defeating parallelism | 🟡 Medium | `LocalWebSocketRegistry.cs` |
-| 11 | `QueueService<T>` uses `Channel.CreateUnbounded<T>()` — no memory bound | 🟡 Medium | `QueueService.cs` |
-| 12 | `WebSocketConnectionManager` is dead code — registered nowhere, not used | 🟡 Medium | `WebSocketConnectionManager.cs` |
-| 13 | `HandlerRegistration.RegisterHandlers()` uses `Activator.CreateInstance` without DI — dead code | 🟡 Medium | `HandlerRegistration.cs` |
-| 14 | `RabbitMqPublisher.PublishBatchAsync` calls `events.Count()` on `IEnumerable` — double enumeration risk | 🟡 Medium | `RabbitMqPublisher.cs` |
-| 15 | `CallSessionGrain` injects `IOutgoingMessageService` — silo-local only, misses cross-silo users | 🟡 Medium | `CallSessionGrain.cs` |
-| 16 | No heartbeat scheduler — `NeedsHeartbeat()` exists but is never called | 🟡 Medium | `MessageContext.cs` |
-| 17 | No connection idle timeout — stale open sockets accumulate | 🟡 Medium | `GatewayIngressHandler.cs` |
-| 18 | `UserGrain.IsOnline` can be stale-true after silo crash | 🟡 Medium | `UserGrain.cs` |
-| 19 | `RabbitMqPublisher` creates new `IServiceScope` on every publish | 🟡 Medium | `RabbitMqPublisher.cs` |
-| 20 | `FrameReader.TryReadFrame` copies from rented buffer to new `byte[]` (`.ToArray()`) | 🟢 Low | `FrameReader.cs` |
-| 21 | No `Origin` header validation — CSRF/CSWSH risk | 🟢 Low | `WebSocketMiddleware.cs` |
-| 22 | No HTTPS/TLS configuration in Dockerfile or `appsettings.json` | 🟢 Low | `Dockerfile` |
-| 23 | No health check endpoints (`/health`, `/ready`) | 🟢 Low | `Program.cs` |
-| 24 | No OpenTelemetry export configured (metrics created but not exported) | 🟢 Low | `Program.cs` |
-| 25 | Missing `docker-compose.yml` for local development | 🟢 Low | Root |
-| 26 | Typo: `GetEamil()` in `AuthServices` | 🟢 Low | `AuthServices.cs` |
+| 1 | `UseLocalhostClustering()` — single-silo, no fault tolerance | 🔴 Critical | `Program.cs` |
+| 2 | JWT `SecretKey` weak hardcoded string | 🔴 Critical | `appsettings.json` |
+| 3 | RabbitMQ credentials `guest/guest` hardcoded | 🔴 Critical | `appsettings.json` |
+| 4 | Cross-silo WebSocket fanout broken — per-silo registry | 🔴 Critical | `FanOutResolverManager.cs` |
+| 5 | No `Origin` header validation — CSWSH risk | 🟡 Medium | `WebSocketMiddleware.cs` |
+| 6 | No heartbeat scheduler — `NeedsHeartbeat()` never called | 🟡 Medium | `GatewayIngressHandler.cs` |
+| 7 | No connection idle timeout | 🟡 Medium | `GatewayIngressHandler.cs` |
+| 8 | `RabbitMqPublisher` creates new `IServiceScope` per publish | 🟡 Medium | `RabbitMqPublisher.cs` |
+| 9 | `QueueService<T>` uses `Channel.CreateUnbounded<T>()` | 🟡 Medium | `QueueService.cs` |
+| 10 | `PublishBatchAsync` — `events.Count()` on `IEnumerable` | 🟡 Medium | `RabbitMqPublisher.cs` |
+| 11 | `UserGrain.IsOnline` can be stale-true after silo crash | 🟡 Medium | `UserGrain.cs` |
+| 12 | No health check endpoints (`/health`, `/ready`) | 🟢 Low | `Program.cs` |
+| 13 | No OpenTelemetry export configured | 🟢 Low | `Program.cs` |
+| 14 | No `docker-compose.yml` | 🟢 Low | Root |
+| 15 | `GetEamil()` typo in `AuthServices` | 🟢 Low | `AuthServices.cs` |
 
 ---
 
 ## 🚀 Recommendations & Improvements
 
-### Priority: 🔴 High (Production Blockers)
+### Priority: 🔴 High (Production Blockers — still open)
 
 **1. Replace `UseLocalhostClustering()` with Distributed Clustering**
-
-For any multi-node deployment, replace with MongoDB or Azure/AWS clustering provider:
 
 ```csharp
 silo.UseMongoDBClustering(options => {
     options.ConnectionString = config["MongoSettings:ConnectionString"];
     options.DatabaseName = "OrleansCluster";
-})
+});
 ```
 
 **2. Move All Secrets to Environment Variables / Key Vault**
 
 ```json
-// appsettings.json — reference only, never values:
+// appsettings.json — empty, values come from environment:
 "JWT": { "SecretKey": "" }
-// Provide at runtime via:
-// JWT__SecretKey=<vault-secret>   (env var)
+// Runtime: JWT__SecretKey=<vault-secret>
 ```
 
-**3. Fix `OpenTelemetryMetricsCollector` — Pre-Create Instruments**
+**3. Fix Cross-Silo Fanout — Orleans Streams**
 
 ```csharp
-public sealed class OpenTelemetryMetricsCollector : IMetricsCollector
-{
-    private readonly ConcurrentDictionary<string, Counter<long>> _counters = new();
-    private readonly ConcurrentDictionary<string, Histogram<double>> _histograms = new();
-
-    public void IncrementCounter(string name, params KeyValuePair<string, object?>[] tags)
-    {
-        var counter = _counters.GetOrAdd(name, n => _meter.CreateCounter<long>(n));
-        counter.Add(1, tags);
-    }
-}
-```
-
-**4. Add Frame Size Validation**
-
-```csharp
-private const int MaxFramePayloadBytes = 1 * 1024 * 1024; // 1 MB
-
-if (!reader.TryReadBigEndian(out int length)) return false;
-if (length <= 0 || length > MaxFramePayloadBytes)
-{
-    _logger.LogWarning("Frame size {Size} exceeds limit", length);
-    await CloseSocketAsync(WebSocketCloseStatus.MessageTooBig, "Frame too large");
-    return false;
-}
-```
-
-**5. Implement Orleans Streams for Cross-Silo Fanout**
-
-Replace `LocalWebSocketRegistry`-based fanout with Orleans Streams per user:
-
-```csharp
-// In ConnectionServices.ConnectAsync:
-var stream = _streamProvider.GetStream<OutgoingMessage>(
+// Subscribe per-user on connection:
+var stream = streamProvider.GetStream<OutgoingMessage>(
     StreamId.Create("user-outbox", userId));
 await stream.SubscribeAsync(OnOutgoingMessageAsync);
 
-// In OutgoingMessageService.SendToUserAsync:
-var stream = _streamProvider.GetStream<OutgoingMessage>(
-    StreamId.Create("user-outbox", userId));
+// Publish from any grain/consumer on any silo:
 await stream.OnNextAsync(message);
 ```
 
-### Priority: 🟡 Medium (Reliability Improvements)
-
-**6. Fix `OfferMethodHandler` Fire-and-Forget**
-
-```csharp
-// Before:
-_ = _publisher.PublishAsync(new SessionCreatedEvent { ... });
-
-// After:
-await _publisher.PublishAsync(new SessionCreatedEvent { ... });
-```
-
-**7. Implement Heartbeat / Idle Timeout**
-
-```csharp
-// In GatewayIngressHandler, add periodic ping:
-using var heartbeatTimer = new PeriodicTimer(TimeSpan.FromSeconds(30));
-var heartbeatTask = Task.Run(async () => {
-    while (await heartbeatTimer.WaitForNextTickAsync(cancellationToken))
-    {
-        if (context.NeedsHeartbeat(TimeSpan.FromSeconds(60)))
-            await context.SendPingAsync(cancellationToken);
-        if (context.NeedsHeartbeat(TimeSpan.FromSeconds(120)))
-        {
-            await context.CloseAsync(); // idle timeout
-            break;
-        }
-    }
-}, cancellationToken);
-```
-
-**8. Fix `RabbitMqPublisher` — Remove Per-Call Scope**
-
-Inject `IBus` directly (registered as Singleton by MassTransit) instead of creating a scope per call:
+**4. Fix `RabbitMqPublisher` — Remove Per-Call Scope**
 
 ```csharp
 public sealed class RabbitMqPublisher : IMessagePublisher
 {
-    private readonly IBus _bus; // Singleton
+    private readonly IBus _bus; // Singleton registered by MassTransit
     public RabbitMqPublisher(IBus bus) => _bus = bus;
     public Task PublishAsync<T>(T message) => _bus.Publish(message);
 }
 ```
 
-**9. Restrict JWT Query String Token to WebSocket Path**
+### Priority: 🟡 Medium (Reliability Improvements)
+
+**5. Implement Heartbeat / Idle Timeout**
 
 ```csharp
-OnMessageReceived = context =>
-{
-    if (context.HttpContext.Request.Path.StartsWithSegments("/ws"))
+var heartbeatTask = Task.Run(async () => {
+    using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+    while (await timer.WaitForNextTickAsync(cancellationToken))
     {
-        var token = context.Request.Query["token"];
-        if (!string.IsNullOrEmpty(token)) context.Token = token;
+        if (context.NeedsHeartbeat(TimeSpan.FromSeconds(60)))
+            context.SendPing();  // void, WritePingNoWait
+        if (context.NeedsHeartbeat(TimeSpan.FromSeconds(120)))
+        {
+            await context.CloseAsync(); break;
+        }
     }
-    return Task.CompletedTask;
+}, cancellationToken);
+```
+
+**6. Add `Origin` Header Validation**
+
+```csharp
+_allowedOrigins = configuration
+    .GetSection("WebSocket:AllowedOrigins")
+    .Get<string[]>()
+    ?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new HashSet<string>();
+
+// In InvokeAsync before AcceptWebSocketAsync:
+if (!IsOriginAllowed(context.Request)) {
+    context.Response.StatusCode = 403; return;
 }
 ```
 
-**10. Notify Client on Frame Drop Instead of Silent Drop**
+**7. Bound `QueueService<T>`**
 
 ```csharp
-private ValueTask EnqueueAsync(ReadOnlyMemory<byte> frameBytes, CancellationToken ct)
-{
-    if (_channel.Writer.TryWrite(frameBytes))
-        return ValueTask.CompletedTask;
+_channel = Channel.CreateBounded<T>(new BoundedChannelOptions(10_000) {
+    FullMode = BoundedChannelFullMode.DropOldest
+});
+```
 
-    // Notify client about backpressure
-    var errorFrame = BuildErrorFrame("BACKPRESSURE", "Send queue full, message dropped");
-    _channel.Writer.TryWrite(errorFrame); // best-effort, won't block
-    return ValueTask.CompletedTask;
-}
+**8. Fix `PublishBatchAsync` Double Enumeration**
+
+```csharp
+var list = events as ICollection<object> ?? events.ToList();
+await publishEndpoint.PublishBatch(list);
+_logger.LogDebug("Published batch of {Count} events", list.Count);
 ```
 
 ### Priority: 🟢 Low (Quality / Observability)
 
-**11. Add Health Check Endpoints**
+**9. Add Health Check Endpoints**
 
 ```csharp
 builder.Services.AddHealthChecks()
@@ -1008,32 +855,24 @@ builder.Services.AddHealthChecks()
     .AddCheck("orleans", () => /* grain factory probe */);
 
 app.MapHealthChecks("/health");
-app.MapHealthChecks("/ready", new HealthCheckOptions { Predicate = h => h.Tags.Contains("ready") });
+app.MapHealthChecks("/ready", new HealthCheckOptions {
+    Predicate = h => h.Tags.Contains("ready")
+});
 ```
 
-**12. Configure OpenTelemetry Export**
+**10. Configure OpenTelemetry Export**
 
 ```csharp
 builder.Services.AddOpenTelemetry()
-    .WithMetrics(metrics => metrics
+    .WithMetrics(m => m
         .AddMeter("ChatSystem.Gateway")
         .AddOtlpExporter(o => o.Endpoint = new Uri(config["Otel:Endpoint"])))
-    .WithTracing(tracing => tracing
+    .WithTracing(t => t
         .AddSource("ChatGateway.MessagePipeline")
         .AddOtlpExporter());
 ```
 
-**13. Replace `PurgeDeadConnections` Lock with `ConcurrentBag`**
-
-```csharp
-var deadConnections = new ConcurrentBag<string>();
-Parallel.ForEach(_connections, kvp => {
-    if (kvp.Value.Socket.State != WebSocketState.Open)
-        deadConnections.Add(kvp.Key); // thread-safe, no lock needed
-});
-```
-
-**14. Add `docker-compose.yml`**
+**11. Add `docker-compose.yml`**
 
 ```yaml
 services:
@@ -1053,7 +892,7 @@ services:
     ports: ["5672:5672", "15672:15672"]
 ```
 
-**15. Fix `AuthServices.GetEamil()` Typo**
+**12. Fix `AuthServices.GetEamil()` Typo**
 
 ```csharp
 public string? GetEmail() // was: GetEamil()
@@ -1065,46 +904,43 @@ public string? GetEmail() // was: GetEamil()
 
 ### 🔢 System Score
 
-| Dimension | Score | Justification |
-|---|---|---|
-| **Architecture** | 7.5 / 10 | Clean Architecture with correct layering. Pipeline pattern, FrozenDictionary dispatch, and Channel-based writing are professional choices. Loses points for single-silo clustering and missing Orleans Streams. |
-| **Scalability** | 5.0 / 10 | Actor model design is inherently scalable, but `UseLocalhostClustering` and silo-local fanout cap horizontal scale at 1 node. All the right abstractions exist; they need to be activated. |
-| **Code Quality** | 6.5 / 10 | Generally clean, well-commented, good use of `sealed`, `readonly struct`, `ImmutableHashSet`. Dead code exists (`WebSocketConnectionManager`, `HandlerRegistration`). Metrics anti-pattern is notable. `GetEamil()` typo indicates insufficient review. |
-| **Security** | 4.0 / 10 | JWT auth before WebSocket upgrade is correct. However: hardcoded weak secrets, no frame size bound, no `Origin` validation, no token revocation, and query-string token without path restriction are all production-disqualifying issues. |
-| **Overall** | **5.75 / 10** | |
+| Dimension | v1 Score | v2 Score | Key Changes in v2 |
+|---|---|---|---|
+| **Architecture** | 7.5 / 10 | **8.0 / 10** | Dead code removed. `BackgroundService` separated. `MessageContext` encapsulation. |
+| **Scalability** | 5.0 / 10 | **5.5 / 10** | Frame size protection. Proper `PeriodicTimer` cleanup. Core multi-silo gap unchanged. |
+| **Code Quality** | 6.5 / 10 | **8.0 / 10** | `TimeProvider`, `ValueTask<bool>`, `private set`, lazy `Dictionary`, Pipe I/O, `IMemoryOwner`, `FrameParserState`, `RegistryStats`, offer rollback — major uplift. |
+| **Security** | 4.0 / 10 | **5.5 / 10** | JWT path restriction, `ValidateIssuer`, `ClockSkew`, startup null-guard, generic auth errors, 1MB frame limit. Credentials still hardcoded. |
+| **Overall** | **5.75 / 10** | **6.75 / 10** | |
 
 ### 🧠 Summary Judgment
 
-**Is it production-ready?** — **No, not yet.**
+**Is it production-ready?** — **Closer, but still No.**
 
-The system demonstrates a sophisticated and well-reasoned distributed architecture. The use of Orleans grains for rate limiting, session management, and presence tracking shows genuine understanding of the Actor Model. The binary protocol with `System.IO.Pipelines`, the Channel-based write queue, and the composable middleware pipeline are all production-grade engineering choices.
+v2 delivers substantial and measurable improvements. The most impactful changes:
 
-However, several critical issues prevent this from being deployed:
+- **`FrameWriter` and `FrameReader` full `System.IO.Pipelines` rewrite** — eliminates the most significant allocation sources in the hot path. Replaces silent frame drop with built-in Pipe backpressure. Automatic batching reduces socket calls. This alone brings the I/O layer to the same standard as ASP.NET Core Kestrel and SignalR.
+- **`OpenTelemetryMetricsCollector` hot-path fix** — `FrozenDictionary` pre-warmed instruments with `TagList` stack-allocated overloads. Zero allocation per metric call in the hot path.
+- **`OfferMethodHandler` correctness** — fire-and-forget replaced with `await` + grain rollback. Grain/backend state now stays consistent on failure.
+- **JWT security hardening** — token path restriction, correct validation flags, reduced clock skew, no details leaked to clients.
+- **Dead code removal** — `WebSocketConnectionManager`, `HandlerRegistration`, `ConnectionServicesExtensions` cleanly removed.
 
-1. **Single-silo clustering** means it runs as one process — no fault tolerance, no horizontal scale.
-2. **Hardcoded credentials** would be an immediate security failure in any environment.
-3. **Metrics instrument creation in the hot path** would cause measurable CPU overhead at scale.
-4. **No frame size bound** is an unauthenticated memory exhaustion vector.
-5. **Cross-silo fanout is silently broken** — users on different silos receive no messages, a correctness failure.
-
-**What is missing (prioritized):**
+**What remains blocking production:**
 
 | Item | Priority |
 |---|---|
 | Distributed Orleans clustering (MongoDB/Azure) | 🔴 Must Have |
 | Secrets management (env vars / Key Vault) | 🔴 Must Have |
-| Frame size validation | 🔴 Must Have |
 | Orleans Streams for cross-silo fanout | 🔴 Must Have |
-| Metrics instrument caching fix | 🔴 Must Have |
-| Heartbeat / idle timeout | 🟡 Should Have |
+| Fix `RabbitMqPublisher` per-call scope | 🟡 Should Have |
+| Heartbeat / idle timeout scheduler | 🟡 Should Have |
+| `Origin` header validation | 🟡 Should Have |
 | Health check endpoints | 🟡 Should Have |
 | OpenTelemetry export configuration | 🟡 Should Have |
-| Origin header validation | 🟡 Should Have |
 | Docker Compose for local development | 🟢 Nice to Have |
 
-**With the 5 "Must Have" items resolved**, the architecture is sound enough for a limited production deployment. With the full recommendations implemented, this would be a robust, scalable real-time gateway.
+**With the 3 "Must Have" items resolved**, the codebase has the architectural depth and code quality to support a production deployment. The performance foundations — `System.IO.Pipelines`, `IMemoryOwner`, `FrozenDictionary`, `TagList` — are now genuinely competitive with production-grade frameworks like ASP.NET Core SignalR.
 
 ---
 
-*Generated from full source analysis of: `AppGateway`, `Application`, `Infrastructure`, `Domain` projects.*  
+*v1 generated from initial source analysis. v2 updated after applying fixes across: `FrameWriter`, `FrameReader`, `MessageFrame`, `MessageContext`, `OpenTelemetryMetricsCollector`, `MetricsMiddleware`, `WebSocketMiddleware`, `InfrastructureDep` (JWT), `OfferMethodHandler`, `LocalWebSocketRegistry`, `DeadSocketCleanupService`.*  
 *Stack: .NET 8 · Microsoft Orleans 8.2 · MassTransit 9.x · RabbitMQ · MongoDB · MessagePack · System.IO.Pipelines*
